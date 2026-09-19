@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # --- CORS ---
     # Comma-separated list of allowed frontend origins.
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    FRONTEND_URL: str | None = None
 
     # --- Demo mode ---
     # "auto"  -> demo is derived from the actual data classification
@@ -121,7 +122,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         """Parsed list of allowed CORS origins."""
-        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        if self.FRONTEND_URL and self.FRONTEND_URL.strip() not in origins:
+            origins.append(self.FRONTEND_URL.strip().rstrip("/"))
+        return origins
 
     @property
     def demo_forced(self) -> bool:

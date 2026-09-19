@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DATABASE_URL: str = "sqlite:///./antarctic_dss.db"
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     API_V1_PREFIX: str = "/api/v1"
     LOG_LEVEL: str = "INFO"
 
@@ -36,6 +36,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def cors_origins_list() -> list[str]:
+    """Return configured CORS origins from the shared comma-separated setting."""
+    return [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 def load_config(filename: str) -> dict[str, Any]:
