@@ -17,14 +17,13 @@ RUN sed '/^torch[<>=]/d' /app/backend/requirements.txt > /tmp/requirements-no-to
 COPY backend /app/backend
 COPY config /app/config
 
-# Package the real runtime assets selected by services.data_paths and the
-# routing land mask. The remaining multi-gigabyte data archive stays external.
-COPY ["Real data/processed/sea_ice/csv/sea_ice_latest_part_202312.csv", "/app/Real data/processed/sea_ice/csv/sea_ice_latest_part_202312.csv"]
-COPY ["Real data/processed/ocean/csv/ocean_part_202201.csv", "/app/Real data/processed/ocean/csv/ocean_part_202201.csv"]
-COPY ["Real data/processed/weather/csv/weather_part_202201.csv", "/app/Real data/processed/weather/csv/weather_part_202201.csv"]
-COPY ["Real data/processed/iceberg/csv/iceberg_processed.csv", "/app/Real data/processed/iceberg/csv/iceberg_processed.csv"]
-COPY ["Real data/processed/bathymetry/land_ocean_mask.json", "/app/Real data/processed/bathymetry/land_ocean_mask.json"]
-COPY ["Real data/processed/vessel/csv/vessel_processed.csv", "/app/Real data/processed/vessel/csv/vessel_processed.csv"]
+# Reconstruct and extract only the real runtime assets. The full data archive
+# remains outside the image; these four chunks keep each GitHub file under 100 MB.
+COPY .deploy-assets /tmp/deploy-assets
+RUN cat /tmp/deploy-assets/runtime-data.tar.gz.part-* > /tmp/runtime-data.tar.gz \
+    && mkdir -p "/app/Real data/processed" \
+    && tar -xzf /tmp/runtime-data.tar.gz -C "/app/Real data/processed" \
+    && rm -rf /tmp/deploy-assets /tmp/runtime-data.tar.gz
 
 WORKDIR /app/backend
 EXPOSE 8000
