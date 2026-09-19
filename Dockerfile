@@ -16,6 +16,9 @@ RUN sed '/^torch[<>=]/d' /app/backend/requirements.txt > /tmp/requirements-no-to
 
 COPY backend /app/backend
 COPY config /app/config
+COPY .deploy-models/models.tar.gz /tmp/models.tar.gz
+RUN tar -xzf /tmp/models.tar.gz -C /app/backend \
+    && rm -f /tmp/models.tar.gz
 
 # Reconstruct and extract only the real runtime assets. The full data archive
 # remains outside the image; these four chunks keep each GitHub file under 100 MB.
