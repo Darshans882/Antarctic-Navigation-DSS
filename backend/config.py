@@ -19,6 +19,7 @@ SYNTHETIC_DEMO = "synthetic_demo"
 PIPELINE_DATA = "pipeline_data"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LAND_MASK_FILE = PROJECT_ROOT / "Real data" / "processed" / "bathymetry" / "land_ocean_mask.json"
+DEFAULT_PRODUCTION_FRONTEND_ORIGIN = "https://antarctic-navigation-dss.vercel.app"
 
 DEMO_WARNING = (
     "DEMO MODE: these results are based on synthetic demo data used for "
@@ -125,6 +126,8 @@ class Settings(BaseSettings):
         origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
         if self.FRONTEND_URL and self.FRONTEND_URL.strip() not in origins:
             origins.append(self.FRONTEND_URL.strip().rstrip("/"))
+        if DEFAULT_PRODUCTION_FRONTEND_ORIGIN not in origins:
+            origins.append(DEFAULT_PRODUCTION_FRONTEND_ORIGIN)
         return origins
 
     @property
