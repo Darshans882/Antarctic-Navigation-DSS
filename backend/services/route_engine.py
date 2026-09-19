@@ -134,6 +134,13 @@ def _load_source_snapshot(ts: datetime, config: dict[str, Any]) -> dict[str, Any
     return snapshot
 
 
+def warm_route_data(config: dict[str, Any]) -> None:
+    """Load the route data snapshot before the first request on a cold worker."""
+    started = time.perf_counter()
+    _load_source_snapshot(datetime.now(timezone.utc).replace(tzinfo=None), config)
+    logger.info("ROUTE_DATA_WARMED elapsed_ms=%.1f", (time.perf_counter() - started) * 1000)
+
+
 def _real_weather_severity(grid: AntarcticGrid) -> tuple[np.ndarray, bool]:
     """Regrid the newest real weather timestep onto the navigation grid.
 
