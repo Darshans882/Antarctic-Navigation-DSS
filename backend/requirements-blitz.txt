@@ -1,0 +1,9 @@
+# Runtime dependencies for the Blitz.cloud demo deployment.
+# Training and scientific pipeline packages remain in requirements.txt.
+fastapi>=0.111.0,<1
+uvicorn[standard]>=0.30.0,<1
+pydantic>=2.7.0,<3
+pydantic-settings>=2.2.0,<3
+numpy>=1.26.0,<3
+pandas>=2.2.0,<3
+SQLAlchemy>=2.0.0,<3
