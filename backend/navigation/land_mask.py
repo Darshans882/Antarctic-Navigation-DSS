@@ -97,17 +97,12 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
             land = np.where(np.isfinite(band), band >= 0, False)
             src["format"] = "geotiff"
         elif suffix == ".json":
-            import json
+            import ijson
 
-            with full.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            if not {"latitude", "longitude", "ocean_cells"} <= set(data):
-                raise ValueError(
-                    "JSON land mask must contain 'latitude', 'longitude' and "
-                    "'ocean_cells' arrays (coordinate pairs mark ocean cells)."
-                )
-            o_lat = np.asarray(data["latitude"], dtype=float)
-            o_lon = np.asarray(data["longitude"], dtype=float)
+            with full.open("rb") as handle:
+                o_lat = np.fromiter(ijson.items(handle, "latitude.item"), dtype=float)
+            with full.open("rb") as handle:
+                o_lon = np.fromiter(ijson.items(handle, "longitude.item"), dtype=float)
             if len(o_lat) != len(o_lon):
                 raise ValueError("JSON land mask latitude/longitude arrays must be equal length.")
             lat_arr = np.sort(np.unique(o_lat))
@@ -117,7 +112,7 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
             land = np.ones((len(lat_arr), len(lon_arr)), dtype=bool)
             land[lat_idx, lon_idx] = False
             lat, lon = o_lat, o_lon
-            del data, lat_idx, lon_idx
+            del lat_idx, lon_idx
             src["format"] = "json"
         else:  # netCDF (GEBCO-style or depth variable)
             import xarray as xr
