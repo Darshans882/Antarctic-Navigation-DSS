@@ -1,0 +1,15 @@
+.git
+.gitignore
+.venv
+node_modules
+frontend
+Real data/raw
+Real data/processed
+backend/data/processed
+backend/data/reports
+backend/models
+*.db
+*.sqlite
+*.sqlite3
+__pycache__
+*.pyc
