@@ -99,7 +99,8 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
         elif suffix == ".json":
             import json
 
-            data = json.loads(full.read_text(encoding="utf-8"))
+            with full.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
             if not {"latitude", "longitude", "ocean_cells"} <= set(data):
                 raise ValueError(
                     "JSON land mask must contain 'latitude', 'longitude' and "
@@ -116,6 +117,7 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
             land = np.ones((len(lat_arr), len(lon_arr)), dtype=bool)
             land[lat_idx, lon_idx] = False
             lat, lon = o_lat, o_lon
+            del data, lat_idx, lon_idx
             src["format"] = "json"
         else:  # netCDF (GEBCO-style or depth variable)
             import xarray as xr
