@@ -173,18 +173,27 @@ def _real_weather_severity(grid: AntarcticGrid) -> tuple[np.ndarray, bool]:
     key = path.name
     if key not in _WEATHER_SEVERITY_CACHE:
         try:
-            df = pd.read_csv(
-                path, usecols=["timestamp", "latitude", "longitude", "wind_speed"]
-            )
+            latest_ts = None
+            latest_frames: list[pd.DataFrame] = []
+            for chunk in pd.read_csv(
+                path,
+                usecols=["timestamp", "latitude", "longitude", "wind_speed"],
+                chunksize=200_000,
+            ):
+                chunk_ts = chunk["timestamp"].max()
+                if latest_ts is None or chunk_ts > latest_ts:
+                    latest_ts = chunk_ts
+                    latest_frames = [chunk[chunk["timestamp"] == latest_ts]]
+                elif chunk_ts == latest_ts:
+                    latest_frames.append(chunk[chunk["timestamp"] == latest_ts])
+            if not latest_frames:
+                return empty, False
+            frame = pd.concat(latest_frames, ignore_index=True)
         except Exception:  # noqa: BLE001 - report, never crash routing
             return empty, False
-        if df.empty:
+        if frame.empty:
             return empty, False
-        latest_ts = str(df["timestamp"].iloc[-1])
-        frame = df[df["timestamp"] == latest_ts][
-            ["latitude", "longitude", "wind_speed"]
-        ]
-        del df
+        frame = frame[["latitude", "longitude", "wind_speed"]]
         if frame.empty:
             return empty, False
         ws = pd.to_numeric(frame["wind_speed"], errors="coerce").to_numpy(dtype=float)

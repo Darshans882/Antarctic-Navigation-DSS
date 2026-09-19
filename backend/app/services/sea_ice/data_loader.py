@@ -85,13 +85,22 @@ class SeaIceDataLoader:
     def _load_from_csv(self, path: Path) -> dict[str, Any]:
         """Pivot the newest timestamp of a processed sea-ice CSV into a grid."""
         try:
-            df = pd.read_csv(
-                path,
-                usecols=[
-                    "timestamp", "latitude", "longitude",
-                    "sea_ice_concentration", "nodata_flag",
-                ],
-            )
+            columns = [
+                "timestamp", "latitude", "longitude",
+                "sea_ice_concentration", "nodata_flag",
+            ]
+            latest_ts = None
+            latest_frames: list[pd.DataFrame] = []
+            for chunk in pd.read_csv(path, usecols=columns, chunksize=200_000):
+                chunk_ts = chunk["timestamp"].max()
+                if latest_ts is None or chunk_ts > latest_ts:
+                    latest_ts = chunk_ts
+                    latest_frames = [chunk[chunk["timestamp"] == latest_ts]]
+                elif chunk_ts == latest_ts:
+                    latest_frames.append(chunk[chunk["timestamp"] == latest_ts])
+            if not latest_frames:
+                raise SeaIceDataError(f"No rows in sea-ice CSV {path}")
+            df = pd.concat(latest_frames, ignore_index=True)
         except Exception as exc:
             raise SeaIceDataError(f"Failed to read sea-ice CSV {path}: {exc}") from exc
 
@@ -99,8 +108,7 @@ class SeaIceDataLoader:
             raise SeaIceDataError(f"No rows in sea-ice CSV {path}")
 
         # Newest available time step only.
-        latest_ts = str(df["timestamp"].iloc[-1])
-        df = df[df["timestamp"] == latest_ts]
+        latest_ts = str(df["timestamp"].iloc[0])
 
         # Drop nodata/land cells kept for transparency.
         if "nodata_flag" in df.columns:
