@@ -43,6 +43,7 @@ _WEATHER_SEVERITY_CACHE: dict[str, tuple[np.ndarray, bool]] = {}
 # always re-derived per call: engine state is per-request and never shared.
 _SOURCE_CACHE_TTL_SECONDS = 120.0
 _SOURCE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_LAND_MASK_CACHE: dict[str, tuple[np.ndarray | None, dict[str, Any]]] = {}
 
 
 def _source_fingerprint() -> str:
@@ -138,6 +139,11 @@ def warm_route_data(config: dict[str, Any]) -> None:
     """Load the route data snapshot before the first request on a cold worker."""
     started = time.perf_counter()
     _load_source_snapshot(datetime.now(timezone.utc).replace(tzinfo=None), config)
+    grid = AntarcticGrid.from_config(config)
+    land_mask_path = settings.LAND_MASK_FILE
+    if not land_mask_path or not Path(land_mask_path).is_file():
+        land_mask_path = str(DEFAULT_LAND_MASK_FILE)
+    _LAND_MASK_CACHE[str(land_mask_path)] = load_land_mask(grid, land_mask_path)
     logger.info("ROUTE_DATA_WARMED elapsed_ms=%.1f", (time.perf_counter() - started) * 1000)
 
 
@@ -262,7 +268,12 @@ def build_route_engine(
     land_mask_path = settings.LAND_MASK_FILE
     if not land_mask_path or not Path(land_mask_path).is_file():
         land_mask_path = str(DEFAULT_LAND_MASK_FILE)
-    land_mask, mask_info = load_land_mask(grid, land_mask_path)
+    land_mask_result = _LAND_MASK_CACHE.get(str(land_mask_path))
+    if land_mask_result is None:
+        logger.info("LAND_MASK_CACHE_MISS")
+        land_mask_result = load_land_mask(grid, land_mask_path)
+        _LAND_MASK_CACHE[str(land_mask_path)] = land_mask_result
+    land_mask, mask_info = land_mask_result
     if land_mask is not None:
         grid.set_land_mask(land_mask)
         notes.append(
