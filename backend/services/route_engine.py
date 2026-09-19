@@ -129,7 +129,7 @@ def _load_source_snapshot(ts: datetime, config: dict[str, Any]) -> dict[str, Any
         "_weather": weather_severity,
         "_weather_ok": weather_ok,
     }
-    _SOURCE_CACHE[fingerprint] = (now, snapshot)
+    _SOURCE_CACHE[fingerprint] = (time.time(), snapshot)
     logger.info("ROUTE_DATA_LOADED cache_stored=true elapsed_ms=%.1f", (time.perf_counter() - started) * 1000)
     return snapshot
 
