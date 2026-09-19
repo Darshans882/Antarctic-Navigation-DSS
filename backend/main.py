@@ -86,6 +86,7 @@ app.add_middleware(
 # declared before the /{iceberg_id} parameter route).
 # ---------------------------------------------------------------------------
 app.include_router(health.router, prefix="/api")
+app.include_router(health.system_router, prefix="/api")
 app.include_router(datasets.router, prefix="/api")
 app.include_router(sea_ice.router, prefix="/api")
 app.include_router(icebergs.router, prefix="/api")

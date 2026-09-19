@@ -1,6 +1,9 @@
 """Route-optimisation and route-detail endpoints."""
 from __future__ import annotations
 
+import logging
+import time
+
 from fastapi import APIRouter, HTTPException
 
 from schemas.models import (
@@ -13,6 +16,7 @@ from schemas.models import (
 from services.navigation_service import navigation_service
 
 router = APIRouter(prefix="/routes", tags=["routes"])
+logger = logging.getLogger("dss.api.routes")
 
 
 def _result_from_dict(d: dict) -> RouteResult:
@@ -32,6 +36,12 @@ def _result_from_dict(d: dict) -> RouteResult:
 @router.post("/optimize", response_model=RoutesOptimizeResponse)
 async def optimize_route(payload: RouteOptimizationRequest) -> RoutesOptimizeResponse:
     """POST /api/routes/optimize"""
+    started = time.perf_counter()
+    logger.info(
+        "ROUTE_REQUEST_RECEIVED vessel_id=%s preference=%s",
+        payload.vessel_id,
+        payload.preference.value,
+    )
     try:
         result, classification = navigation_service.optimize(
             start_lat=payload.start_latitude,
@@ -50,7 +60,7 @@ async def optimize_route(payload: RouteOptimizationRequest) -> RoutesOptimizeRes
     recommended = _result_from_dict(result["recommended"])
     alternatives = [_result_from_dict(a) for a in result.get("alternatives", [])]
 
-    return RoutesOptimizeResponse(
+    response = RoutesOptimizeResponse(
         route_id=result["route_id"],
         start_latitude=result["start_latitude"],
         start_longitude=result["start_longitude"],
@@ -69,6 +79,17 @@ async def optimize_route(payload: RouteOptimizationRequest) -> RoutesOptimizeRes
         demo=result["demo"],
         disclaimer=result["disclaimer"],
     )
+    recommended_points = len(response.recommended.coordinates)
+    logger.info(
+        "ROUTE_RESPONSE_SENT route_id=%s points=%d distance_km=%.2f elapsed_ms=%.1f",
+        response.route_id,
+        recommended_points,
+        response.recommended.distance_km,
+        (time.perf_counter() - started) * 1000,
+    )
+    logger.info("ROUTE_POINTS_COUNT count=%d", recommended_points)
+    logger.info("ROUTE_DISTANCE distance_km=%.2f", response.recommended.distance_km)
+    return response
 
 
 @router.get("/{route_id}", response_model=RouteDetailResponse)

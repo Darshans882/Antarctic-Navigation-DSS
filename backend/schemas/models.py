@@ -24,6 +24,13 @@ class HealthResponse(BaseModel):
     demo_mode: bool
     database: str
     timestamp: datetime
+    sea_ice_data: bool = False
+    ocean_data: bool = False
+    weather_data: bool = False
+    iceberg_data: bool = False
+    land_mask: bool = False
+    iceberg_model: bool = False
+    route_engine: bool = False
 
 
 # --------------------------------------------------------------------------

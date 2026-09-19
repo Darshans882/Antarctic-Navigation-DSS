@@ -19,6 +19,7 @@ snapshot, exactly like the pre-existing per-call engine builds.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import time
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +67,7 @@ def _source_fingerprint() -> str:
     for each in (
         Path(__file__).resolve().parents[2] / "Real data" / "processed" / "sea_ice" / "csv",
         Path(__file__).resolve().parents[2] / "Real data" / "processed" / "iceberg" / "csv",
-        Path(r"F:\SIH HACK\SIH HACK\backend\data\processed\features\feature_table.csv"),
+        Path(__file__).resolve().parents[1] / "data" / "processed" / "features" / "feature_table.csv",
         Path(__file__).resolve().parents[2] / "Real data" / "processed" / "weather" / "csv",
     ):
         _add(each)
@@ -75,16 +76,25 @@ def _source_fingerprint() -> str:
 
 def _load_source_snapshot(ts: datetime, config: dict[str, Any]) -> dict[str, Any]:
     """Load and lightly cache the raw data sources for engine assembly."""
+    started = time.perf_counter()
     horizon = int(config.get("forecast_horizon_hours", 24))
     fingerprint = _source_fingerprint()
 
     cached = _SOURCE_CACHE.get(fingerprint)
     now = __import__("time").time()
     if cached is not None and (now - cached[0]) < _SOURCE_CACHE_TTL_SECONDS:
+        logger.info("ROUTE_DATA_LOADED cache_hit=true elapsed_ms=%.1f", (time.perf_counter() - started) * 1000)
         return dict(cached[1], _horizon=horizon)
 
+    logger.info("ROUTE_DATA_LOADED cache_hit=false")
     sea_ice_loader = SeaIceDataLoader(netcdf_path=None)
     sea_ice = sea_ice_loader.load(ts)
+    logger.info(
+        "SEA_ICE_DATA_LOADED classification=%s lat=%d lon=%d",
+        sea_ice.get("classification", "unknown"),
+        len(sea_ice.get("lat", [])),
+        len(sea_ice.get("lon", [])),
+    )
     classification = str(sea_ice.get("classification", "unknown"))
     forecast = SeaIceForecastService(settings.SEA_ICE_MODEL or "persistence").forecast(
         sea_ice["sea_ice_concentration"],
@@ -96,6 +106,12 @@ def _load_source_snapshot(ts: datetime, config: dict[str, Any]) -> dict[str, Any
 
     iceberg_data = iceberg_service.predict(
         None, horizon_hours=horizon, model=settings.ICEBERG_MODEL or "persistence"
+    )
+    logger.info(
+        "ICEBERG_DATA_LOADED classification=%s count=%d model=%s",
+        iceberg_data.get("classification", "unknown"),
+        len(iceberg_data.get("icebergs", [])),
+        iceberg_data.get("model", "unknown"),
     )
 
     weather_severity, weather_ok = _real_weather_severity(
@@ -114,6 +130,7 @@ def _load_source_snapshot(ts: datetime, config: dict[str, Any]) -> dict[str, Any
         "_weather_ok": weather_ok,
     }
     _SOURCE_CACHE[fingerprint] = (now, snapshot)
+    logger.info("ROUTE_DATA_LOADED cache_stored=true elapsed_ms=%.1f", (time.perf_counter() - started) * 1000)
     return snapshot
 
 
@@ -186,6 +203,8 @@ def build_route_engine(
     elif ts.tzinfo is not None:
         ts = ts.replace(tzinfo=None)
 
+    started = time.perf_counter()
+    logger.info("ROUTE_CALCULATION_STARTED")
     grid = AntarcticGrid.from_config(config)
     risk_config = RiskConfig.from_dict(config)
     engine = RiskEngine(grid, risk_config)
@@ -245,8 +264,18 @@ def build_route_engine(
         )
     else:
         notes.append(mask_info.get("reason", "Land mask not available; open water assumed."))
+    logger.info(
+        "LAND_MASK_LOADED available=%s land_cells=%d",
+        land_mask is not None,
+        int(grid.land_mask.sum()),
+    )
 
     engine.compute_total()
+    logger.info(
+        "ROUTE_CALCULATION_COMPLETED blocked_cells=%d elapsed_ms=%.1f",
+        int(engine.blocked_mask.sum()),
+        (time.perf_counter() - started) * 1000,
+    )
     return grid, engine, notes, classification
 
 

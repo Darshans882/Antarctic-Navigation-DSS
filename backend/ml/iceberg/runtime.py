@@ -86,6 +86,18 @@ class IcebergRuntime:
                 tracks_path = Path(self._cfg["tracks_resolved"])
                 if not tracks_path.is_absolute():
                     tracks_path = BACKEND_DIR / tracks_path
+                if not tracks_path.is_file():
+                    packaged_tracks = REAL_FEATURE_TABLE if REAL_FEATURE_TABLE.exists() else FEATURE_TABLE
+                    if packaged_tracks.is_file():
+                        LOG.warning(
+                            "Ignoring unavailable recorded track path %s; using packaged feature table %s",
+                            tracks_path,
+                            packaged_tracks,
+                        )
+                        tracks_path = packaged_tracks
+                    else:
+                        self.error = f"No feature-table tracks available for '{self.model_kind}'."
+                        return
                 tracks = pd.read_csv(tracks_path, parse_dates=["timestamp"])
                 self._custom_tracks = tracks.sort_values(["iceberg_id", "timestamp"])
                 self.available = True

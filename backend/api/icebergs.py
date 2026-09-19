@@ -1,6 +1,9 @@
 """Iceberg data, prediction, trajectory and distance endpoints."""
 from __future__ import annotations
 
+import logging
+import time
+
 from fastapi import APIRouter, HTTPException, Query
 
 from schemas.models import (
@@ -16,6 +19,7 @@ from schemas.models import (
 from services.iceberg_service import iceberg_service
 
 router = APIRouter(prefix="/icebergs", tags=["icebergs"])
+logger = logging.getLogger("dss.api.icebergs")
 
 
 def _to_traj_point(p: dict) -> TrajectoryPoint:
@@ -74,10 +78,12 @@ async def iceberg_trajectory(
     model: str = Query("persistence", description="persistence | random_forest | lstm"),
 ) -> IcebergTrajectoryResponse:
     """GET /api/icebergs/{iceberg_id}/trajectory"""
+    started = time.perf_counter()
+    logger.info("ICEBERG_PREDICTION_STARTED iceberg_id=%s model=%s", iceberg_id, model)
     data = iceberg_service.trajectory(iceberg_id, model=model)
     if data is None:
         _404(f"Iceberg '{iceberg_id}' not found.")
-    return IcebergTrajectoryResponse(
+    response = IcebergTrajectoryResponse(
         iceberg_id=data["iceberg_id"],
         observations=[_to_traj_point(p) for p in data.get("observations", [])],
         predictions=[_to_traj_point(p) for p in data.get("predictions", [])],
@@ -88,6 +94,14 @@ async def iceberg_trajectory(
         prediction_model=data.get("prediction_model", "persistence"),
         warning=data.get("warning"),
     )
+    logger.info(
+        "ICEBERG_PREDICTION_COMPLETED iceberg_id=%s observations=%d predictions=%d elapsed_ms=%.1f",
+        iceberg_id,
+        response.count_observations,
+        response.count_predictions,
+        (time.perf_counter() - started) * 1000,
+    )
+    return response
 
 
 @router.get("/{iceberg_id}", response_model=IcebergDetailResponse)
