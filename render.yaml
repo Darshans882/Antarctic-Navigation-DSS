@@ -23,7 +23,8 @@ services:
       - key: FRONTEND_URL
         value: https://antarctic-navigation-frontend.onrender.com
 
-  - type: static
+  - type: web
+    env: static
     name: antarctic-navigation-frontend
     rootDir: frontend
     buildCommand: npm install && npm run build
