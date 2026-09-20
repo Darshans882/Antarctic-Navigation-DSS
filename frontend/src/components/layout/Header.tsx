@@ -4,7 +4,7 @@ import { api } from "../../services/api";
 import { Bars3Icon, BellAlertIcon, ChevronRightIcon, SignalIcon, WifiIcon } from "@heroicons/react/24/outline";
 
 export function Header() {
-  const { toggleSidebar, demoMode, alerts, unreadAlertCount, markAlertRead, setPage } = useApp();
+  const { toggleSidebar, alerts, unreadAlertCount, markAlertRead, setPage } = useApp();
   const [backendStatus, setBackendStatus] = useState<"ok" | "error" | "loading">("loading");
 
   useEffect(() => {
@@ -59,11 +59,6 @@ export function Header() {
           </span>
         </div>
 
-        {demoMode && (
-          <span className="px-2 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 rounded-full">
-            DEMO
-          </span>
-        )}
       </div>
     </header>
   );

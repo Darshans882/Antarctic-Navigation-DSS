@@ -198,9 +198,17 @@ export function AIAssistant() {
                 {m.content}
               </div>
 
-              {m.role === "assistant" && (m.sources || m.warnings?.length) && (
+              {m.role === "assistant" && (() => {
+                const warnings = m.warnings?.filter(
+                  (warning) => warning !== "Predictions are model estimates; no route is guaranteed safe.",
+                ) ?? [];
+                const sources = m.sources?.filter(
+                  (source) => !["route_details", "datasets_status"].includes(source.name),
+                ) ?? [];
+                if (warnings.length === 0 && sources.length === 0) return null;
+                return (
                 <div className="mt-1.5 max-w-[85%] space-y-1">
-                  {m.warnings?.map((w, wi) => (
+                  {warnings.map((w, wi) => (
                     <div
                       key={wi}
                       className="flex items-start gap-1.5 text-[10px] text-amber-700"
@@ -209,9 +217,9 @@ export function AIAssistant() {
                       <span>{w}</span>
                     </div>
                   ))}
-                  {m.sources && m.sources.length > 0 && (
+                  {sources.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {m.sources.map((s) => (
+                      {sources.map((s) => (
                         <span
                           key={s.name}
                           title={s.note ?? undefined}
@@ -230,7 +238,8 @@ export function AIAssistant() {
                     </div>
                   )}
                 </div>
-              )}
+                );
+              })()}
             </div>
           ))}
 

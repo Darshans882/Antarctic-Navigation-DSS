@@ -23,6 +23,7 @@ export function IcebergTrackingPage() {
   const [filter, setFilter] = useState<"all" | "near" | "large">("all");
   const [selected, setSelected] = useState<IcebergDetailResponse | null>(null);
   const [trajectory, setTrajectory] = useState<IcebergTrajectoryResponse | null>(null);
+  const [trajectoryError, setTrajectoryError] = useState<string | null>(null);
   const [distance, setDistance] = useState<IcebergDistanceResponse | null>(null);
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
@@ -60,8 +61,11 @@ export function IcebergTrackingPage() {
       ]);
       setSelected(det);
       setTrajectory(traj);
+      setTrajectoryError(null);
       setDistance(dist);
     } catch (e) {
+      setTrajectory(null);
+      setTrajectoryError(e instanceof Error ? e.message : "Iceberg trajectory unavailable.");
       toast(e instanceof Error ? e.message : "Failed to load iceberg detail", "error");
     }
   }, [fromId, toast]);
@@ -242,6 +246,20 @@ export function IcebergTrackingPage() {
                 <span>
                   {trajectory.count_observations} obs · {trajectory.count_predictions} pred
                 </span>
+              </div>
+            )}
+            {trajectoryError && (
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-red-700">
+                <span>Iceberg trajectory unavailable. Reason: {trajectoryError}</span>
+                {selected && (
+                  <button
+                    type="button"
+                    onClick={() => selectIceberg(selected.iceberg_id)}
+                    className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 font-medium"
+                  >
+                    Retry
+                  </button>
+                )}
               </div>
             )}
           </CardBody>

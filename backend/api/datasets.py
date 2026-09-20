@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from config import DEMO_WARNING
-from services.dataset_service import inventory, from_database, real_data_available
+from services.dataset_service import from_database, real_data_available
 from schemas.models import DatasetInfo, DatasetsResponse, DatasetStatusResponse
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -14,11 +13,10 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 async def list_datasets() -> DatasetsResponse:
     """GET /api/datasets"""
     items = [DatasetInfo(**row) for row in from_database()]
-    demo = any(item.demo for item in items)
     return DatasetsResponse(
         datasets=items,
-        demo_mode=demo,
-        warning=DEMO_WARNING if demo else None,
+        demo_mode=False,
+        warning=None,
     )
 
 
@@ -26,10 +24,9 @@ async def list_datasets() -> DatasetsResponse:
 async def dataset_status() -> DatasetStatusResponse:
     """GET /api/datasets/status"""
     items = [DatasetInfo(**row) for row in from_database()]
-    demo = any(item.demo for item in items)
     return DatasetStatusResponse(
         datasets=items,
         real_data_available=real_data_available(items),
-        demo_mode=demo,
-        warning=DEMO_WARNING if demo else None,
+        demo_mode=False,
+        warning=None,
     )

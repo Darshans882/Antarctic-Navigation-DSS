@@ -44,8 +44,6 @@ interface AppCtx {
   toasts: Toast[];
   toast: (message: string, type?: Toast["type"]) => void;
   removeToast: (id: number) => void;
-  demoMode: boolean;
-  setDemoMode: (v: boolean) => void;
   activeRoute: RoutesOptimizeResponse | null;
   setActiveRoute: (route: RoutesOptimizeResponse | null) => void;
   navigation: NavigationSnapshot;
@@ -71,9 +69,25 @@ const Ctx = createContext<AppCtx>(null!);
 let toastId = 0;
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [page, setPageState] = useState<PageId>(() =>
-    window.location.pathname === "/alert-message" ? "alerts" : "overview",
-  );
+  const pageFromPath = (path: string): PageId => {
+    switch (path) {
+      case "/navigation":
+        return "planner";
+      case "/sea-ice":
+        return "sea-ice";
+      case "/icebergs":
+        return "icebergs";
+      case "/alert-message":
+      case "/alerts":
+        return "alerts";
+      case "/assistant":
+        return "assistant";
+      default:
+        return "home";
+    }
+  };
+
+  const [page, setPageState] = useState<PageId>(() => pageFromPath(window.location.pathname));
   const [alerts, setAlerts] = useState<AlertRecord[]>(() => {
     try {
       const saved = window.localStorage.getItem("antarctic-dss-alerts");
@@ -84,7 +98,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [demoMode, setDemoMode] = useState(true);
   const notifiedAlertIds = useRef(new Set<string>());
   const [activeRoute, setActiveRouteState] = useState<RoutesOptimizeResponse | null>(null);
   const [navigation, setNavigationState] = useState<NavigationSnapshot>({
@@ -102,15 +115,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
   const setPage = useCallback((nextPage: PageId) => {
     setPageState(nextPage);
-    if (nextPage === "alerts") {
-      window.history.pushState({}, "", "/alert-message");
-    } else if (window.location.pathname === "/alert-message") {
-      window.history.pushState({}, "", "/");
-    }
+    const paths: Record<PageId, string> = {
+      home: "/",
+      planner: "/navigation",
+      "sea-ice": "/sea-ice",
+      icebergs: "/icebergs",
+      alerts: "/alert-message",
+      assistant: "/assistant",
+    };
+    window.history.pushState({}, "", paths[nextPage]);
   }, []);
 
   useEffect(() => {
-    const onPopState = () => setPageState(window.location.pathname === "/alert-message" ? "alerts" : "overview");
+    const onPopState = () => setPageState(pageFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -200,14 +217,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toasts,
       toast,
       removeToast,
-      demoMode,
-      setDemoMode,
       activeRoute,
       setActiveRoute,
       navigation,
       setNavigation,
     }),
-    [page, alerts, addAlert, replaceRouteAlerts, markAlertRead, markAllAlertsRead, deleteAlert, clearAlerts, sidebarOpen, toasts, demoMode, toast, removeToast, toggleSidebar, activeRoute, navigation, setNavigation, setActiveRoute],
+    [page, alerts, addAlert, replaceRouteAlerts, markAlertRead, markAllAlertsRead, deleteAlert, clearAlerts, sidebarOpen, toasts, toast, removeToast, toggleSidebar, activeRoute, navigation, setNavigation, setActiveRoute],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

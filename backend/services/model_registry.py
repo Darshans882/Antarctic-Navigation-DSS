@@ -123,9 +123,9 @@ def model_registry() -> dict:
             "sea_ice_model": settings.SEA_ICE_MODEL,
             "iceberg_model": settings.ICEBERG_MODEL,
         },
-        "demo_mode": settings.demo_forced,
+        "demo_mode": False,
         "warning": (
-            "All available model checkpoints were trained on synthetic demo data."
+            "No real-trained model checkpoint is available in the current runtime."
             if not real_trained and all_models
             else None
         ),

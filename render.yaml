@@ -1,38 +1,37 @@
 services:
   - type: web
-    name: antarctic-navigation-api
+    name: antarctic-navigation-backend
     runtime: python
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
+    plan: free
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.11
+        value: "3.11"
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "8000"
       - key: DATA_MODE
-        value: demo
+        value: real
       - key: DEMO_MODE
-        value: force
-      - key: SEA_ICE_MODEL
-        value: persistence
-      - key: ICEBERG_MODEL
-        value: persistence
-      - key: ASSISTANT_PROVIDER
-        value: none
+        value: "off"
       - key: CORS_ORIGINS
-        sync: false
-      - key: DATABASE_URL
-        sync: false
+        value: https://antarctic-navigation-frontend.onrender.com
+      - key: FRONTEND_URL
+        value: https://antarctic-navigation-frontend.onrender.com
 
-  - type: web
+  - type: static
     name: antarctic-navigation-frontend
-    runtime: static
     rootDir: frontend
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: dist
+    plan: free
     envVars:
       - key: VITE_API_BASE_URL
-        sync: false
+        value: https://antarctic-navigation-backend.onrender.com
     routes:
       - type: rewrite
         source: /*

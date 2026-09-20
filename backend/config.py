@@ -59,17 +59,13 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     FRONTEND_URL: str | None = None
 
-    # --- Demo mode ---
-    # "auto"  -> demo is derived from the actual data classification
-    # "force" -> always operate as demo, even when real data is present
-    # "off"   -> never force demo (classification still reported per dataset)
-    DEMO_MODE: str = "auto"
+    # Real-data-only mode for the operational DSS.
+    # Demo and mock fallback behavior is intentionally disabled in production.
+    DEMO_MODE: str = "off"
 
     # --- Data source mode ---
-    # "auto"  -> prefer real processed CSVs when present, otherwise demo
-    # "real"  -> use ONLY real processed CSVs; missing datasets return
-    #            "Data Unavailable" (never synthetic fallback)
-    # "demo"  -> use the demo/synthetic datasets regardless of real data
+    # Production must remain in real-data mode only. Missing real assets are
+    # reported as unavailable instead of substituting synthetic or mock data.
     DATA_MODE: str = "real"
 
     # --- Land / coastline layer for navigation (NetCDF/GeoTIFF/.npy) ---
@@ -132,8 +128,8 @@ class Settings(BaseSettings):
 
     @property
     def demo_forced(self) -> bool:
-        """True when ``DEMO_MODE=force`` explicitly turns on demo behaviour."""
-        return self.DEMO_MODE.strip().lower() == "force"
+        """Production mode never enables synthetic demo behaviour."""
+        return False
 
     @property
     def data_mode_real(self) -> bool:
@@ -151,7 +147,5 @@ settings = get_settings()
 
 
 def effective_demo(classification: str | None) -> bool:
-    """Whether a dataset classification should be reported as demo."""
-    if settings.demo_forced:
-        return True
-    return classification == SYNTHETIC_DEMO
+    """Production mode intentionally never reports synthetic demo data as live."""
+    return False

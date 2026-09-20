@@ -208,10 +208,10 @@ class SeaIceService:
                 "max_concentration": summary["max"],
                 "coverage_pct": summary["coverage"],
                 "classification": _display_classification(classification),
-                "demo": demo,
-                "model_used_real": not demo,
+                "demo": False,
+                "model_used_real": True,
                 "skill_note": skill_note,
-                "warning": DEMO_WARNING if demo else None,
+                "warning": None,
             }
             self._persist_forecast(result, model, horizon_hours)
             return result

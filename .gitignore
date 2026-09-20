@@ -28,15 +28,11 @@ backend/datasets/processed/*
 backend/datasets/imports/*.csv
 !backend/datasets/imports/.gitkeep
 backend/datasets/reports/*.json
-# Local real-data exports can be tens of gigabytes; keep only their README.
-Real data/raw/
-Real data/processed/
 # Preprocessing outputs (large ML-ready data + reports)
 backend/data/processed/
 backend/data/reports/
 
 # Trained ML artifacts (models, checkpoints, scalers, predictions)
-backend/models/
 backend/models/sea_ice/
 backend/models/iceberg/
 
@@ -56,3 +52,6 @@ frontend/.vite/
 *.swp
 .DS_Store
 Thumbs.db
+.vercel
+.env*
+Real data/

@@ -26,13 +26,27 @@ import type {
   VesselsResponse,
 } from "../types";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 const http = axios.create({
-  baseURL: `${BASE_URL}/api`,
+  baseURL: `${API_BASE_URL ?? ""}/api`,
   timeout: 30000,
   headers: { "Content-Type": "application/json" },
 });
+
+const routeHttp = axios.create({
+  baseURL: `${API_BASE_URL ?? ""}/api`,
+  timeout: 120000,
+  headers: { "Content-Type": "application/json" },
+});
+
+routeHttp.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    const msg = err.response?.data?.detail ?? err.message ?? "Route request failed";
+    return Promise.reject(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)));
+  },
+);
 
 http.interceptors.response.use(
   (r) => r,
@@ -100,7 +114,7 @@ export const api = {
     vessel_id: string;
     preference: string;
   }) =>
-    http.post<RoutesOptimizeResponse>("/routes/optimize", payload).then((r) => r.data),
+    routeHttp.post<RoutesOptimizeResponse>("/routes/optimize", payload).then((r) => r.data),
 
   routeDetail: (id: string) =>
     http.get<RouteDetailResponse>(`/routes/${id}`).then((r) => r.data),

@@ -51,7 +51,7 @@ def _run_startup() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    logger.info("Starting %s v%s (demo_forced=%s)", settings.APP_NAME, settings.APP_VERSION, settings.demo_forced)
+    logger.info("Starting %s v%s (real_data_mode=%s)", settings.APP_NAME, settings.APP_VERSION, settings.data_mode_real)
     try:
         _run_startup()
         warm_route_data(load_navigation_config())
@@ -67,8 +67,8 @@ app = FastAPI(
     description=(
         "Navigation Decision Support System for Antarctic vessels. "
         "Connects ML models, sea-ice/iceberg data, and route optimisation "
-        "behind one REST API. Responses that depend on synthetic demo data "
-        "are clearly labeled."
+        "behind one REST API. The system operates in real-data mode; missing "
+        "resources are reported as unavailable instead of substituted."
     ),
     docs_url="/docs",
     redoc_url="/redoc",

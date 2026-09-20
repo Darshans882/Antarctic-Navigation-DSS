@@ -88,6 +88,7 @@ export function NavigationPlannerPage() {
   const [mapRefreshToken, setMapRefreshToken] = useState(0);
 
   const [loadingMeta, setLoadingMeta] = useState(true);
+  const [routeError, setRouteError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "start" | "advance" | "recalc">(null);
   const setPortId = (value: string) => setNavigation({ portId: value });
   const setCenterId = (value: string) => setNavigation({ centerId: value });
@@ -154,11 +155,13 @@ export function NavigationPlannerPage() {
           vessel_id: vId,
           preference: "recommended",
         });
+        setRouteError(null);
         setPlanning(plan);
         setNavigation({ selectedRoute: plan.recommended });
         setActiveRoute(plan);
-      } catch {
+      } catch (e) {
         setPlanning(null); // alternatives unavailable — never shown as fake
+        setRouteError(e instanceof Error ? e.message : "Route generation failed.");
       }
     },
     [setActiveRoute, setNavigation],
@@ -607,6 +610,25 @@ export function NavigationPlannerPage() {
           </div>
         </CardBody>
       </Card>
+
+      {routeError && (
+        <Card>
+          <CardBody>
+            <div className="flex items-center justify-between gap-3 text-xs text-red-700">
+              <span>Route generation failed. Reason: {routeError}</span>
+              {port && center && (
+                <button
+                  type="button"
+                  onClick={() => fetchAlternatives(port, center, vesselId)}
+                  className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 font-medium"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {(journey || planning) ? (
         <Card>

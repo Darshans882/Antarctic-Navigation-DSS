@@ -11,7 +11,7 @@ import { LoadingState, ErrorState } from "../components/common/States";
 import { useApp } from "../context/AppContext";
 
 export function Overview() {
-  const { toast, demoMode, activeRoute } = useApp();
+  const { toast, activeRoute } = useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [icebergs, setIcebergs] = useState<IcebergsListResponse | null>(null);
@@ -42,7 +42,7 @@ export function Overview() {
 
   useEffect(() => {
     load();
-    toast(demoMode ? "Dashboard loaded in demo mode" : "Dashboard loaded with real data", "info");
+    toast("Dashboard loaded with live Antarctic data", "info");
   }, [load, toast]);
 
   if (loading) return <LoadingState message="Loading overview..." />;

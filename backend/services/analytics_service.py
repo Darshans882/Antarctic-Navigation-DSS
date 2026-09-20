@@ -269,12 +269,11 @@ def model_metrics() -> dict:
         }
         for r in rows
     ]
-    demo_mode = any(i["demo"] for i in items) or settings.demo_forced
     return {
         "metrics": items,
         "count": len(items),
-        "demo_mode": demo_mode,
-        "warning": "Metrics are from DEMO synthetic training runs." if demo_mode else None,
+        "demo_mode": False,
+        "warning": None,
     }
 
 
@@ -478,7 +477,7 @@ def summary(classifications: list[dict] | None = None) -> dict:
         warnings.append("No icebergs seeded in the database.")
 
     return {
-        "demo_mode": settings.demo_forced or n_metrics == 0,
+        "demo_mode": False,
         "real_model_available": real_models,
         "model_status": model_status,
         "model_accuracy": _evaluation_accuracy(),

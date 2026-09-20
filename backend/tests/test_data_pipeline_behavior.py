@@ -124,3 +124,18 @@ def test_validate_processed_falls_back_to_demo(tmp_path):
     result = validate_processed(tmp_path)
     assert result.status == "valid"
     assert result.file == "icebergs_demo.csv"
+
+
+def test_real_mode_never_falls_back_to_demo(monkeypatch, tmp_path):
+    from config import settings
+    from services import data_paths
+
+    monkeypatch.setattr(settings, "DATA_MODE", "real", raising=False)
+
+    demo_file = tmp_path / "demo_sea_ice.nc"
+    demo_file.write_text("demo", encoding="utf-8")
+
+    result = data_paths._resolve([tmp_path / "missing_sea_ice.csv"], demo_file, "sea_ice")
+
+    assert result != demo_file
+    assert result.name == "__missing__"

@@ -21,7 +21,8 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    demo_mode: bool
+    demo_mode: bool = False
+    real_data_mode: bool = True
     database: str
     timestamp: datetime
     sea_ice_data: bool = False

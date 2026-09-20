@@ -11,7 +11,7 @@ import {
 } from "@heroicons/react/24/outline";
 
 const NAV_ITEMS: { id: import("../../types").PageId; label: string; icon: typeof HomeIcon }[] = [
-  { id: "overview", label: "Overview", icon: HomeIcon },
+  { id: "home", label: "Home", icon: HomeIcon },
   { id: "sea-ice", label: "Sea-Ice Forecast", icon: CogIcon },
   { id: "icebergs", label: "Iceberg Tracking", icon: FlagIcon },
   { id: "planner", label: "Navigation Dashboard", icon: MapIcon },
@@ -20,7 +20,7 @@ const NAV_ITEMS: { id: import("../../types").PageId; label: string; icon: typeof
 ];
 
 export function Sidebar() {
-  const { page, setPage, sidebarOpen, setSidebarOpen, demoMode } = useApp();
+  const { page, setPage, sidebarOpen, setSidebarOpen } = useApp();
 
   return (
     <>
@@ -76,18 +76,6 @@ export function Sidebar() {
             </button>
           ))}
         </nav>
-
-        {demoMode && (
-          <div className="mx-3 mt-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
-            <div className="flex items-center gap-2 text-amber-700">
-              <ExclamationTriangleIcon className="w-4 h-4 shrink-0" />
-              <span className="text-xs font-medium">Demo Mode</span>
-            </div>
-            <p className="text-[11px] text-amber-600 mt-0.5 leading-snug">
-              All data is synthetic. Not for real navigation.
-            </p>
-          </div>
-        )}
 
         <div className="absolute bottom-0 left-0 right-0 px-3 py-3 border-t border-slate-100">
           <p className="text-[11px] text-navy-400 text-center">

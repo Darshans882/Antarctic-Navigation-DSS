@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     DATA_MODE: str = "real"
-    DEMO_MODE: str = "auto"
+    DEMO_MODE: str = "off"
     LAND_MASK_FILE: str | None = None
     SEA_ICE_MODEL: str = "persistence"
     ICEBERG_MODEL: str = "persistence"

@@ -5,6 +5,13 @@ export interface HealthResponse {
   demo_mode: boolean;
   database: string;
   timestamp: string;
+  sea_ice_data: boolean;
+  ocean_data: boolean;
+  weather_data: boolean;
+  iceberg_data: boolean;
+  land_mask: boolean;
+  iceberg_model: boolean;
+  route_engine: boolean;
 }
 
 export interface DatasetInfo {
@@ -413,7 +420,7 @@ export interface ModelRegistryResponse {
 }
 
 export type PageId =
-  | "overview"
+  | "home"
   | "sea-ice"
   | "icebergs"
   | "planner"

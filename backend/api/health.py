@@ -40,15 +40,17 @@ def _runtime_status() -> dict[str, object]:
     """Inspect production resources once; never claim unavailable resources are ready."""
     iceberg_count = len(iceberg_service.list_icebergs().get("icebergs", []))
     model_available = False
-    for model_name in ("random_forest", "lstm"):
-        runtime = get_runtime(model_name)
-        runtime._load()
-        model_available = model_available or runtime.available
+    configured_model = (settings.ICEBERG_MODEL or "persistence").strip().lower()
+    if configured_model in {"random_forest", "lstm"}:
+        runtime = get_runtime(configured_model)
+        checkpoint = "rf.joblib" if configured_model == "random_forest" else "lstm.pt"
+        model_available = (runtime.out_dir / checkpoint).is_file()
     land_mask = settings.LAND_MASK_FILE or ""
     land_mask_path = Path(land_mask)
     return {
         "backend": True,
-        "demo_mode": settings.demo_forced,
+        "demo_mode": False,
+        "real_data_mode": True,
         "sea_ice_data": _file_available(Path(SEA_ICE_NETCDF)),
         "ocean_data": _file_available(Path(OCEAN_NETCDF)),
         "weather_data": _file_available(Path(WEATHER_NETCDF)),

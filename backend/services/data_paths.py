@@ -1,19 +1,18 @@
 """Resolved paths to datasets.
 
 Constants here are the single point where the loaders learn where the *real*
-datasets live.  They are read in this order of preference:
+datasets live. They are read in this order of preference:
 
-1. ``Real data/processed/<dataset>/csv/`` — your real, preprocessed dataset
-   (the loader always looks here first and, when present, uses only real data).
-2. ``Real data/raw/<dataset>/``        — the raw original (only if the processed
+1. ``Real data/processed/<dataset>/csv/`` — the real, preprocessed dataset.
+2. ``Real data/raw/<dataset>/`` — the raw original (used only if the processed
    copy is missing).
-3. ``backend/datasets/processed/``     — demo / synthetic fallback, used so the
-   dashboard keeps working while the ``Real data`` folders are still empty.
+3. A missing sentinel path — when the app runs in real or auto mode without the
+   expected real file, the API reports *Data Unavailable* instead of silently
+   switching to synthetic demo data.
 
-When a dataset is missing entirely and ``DATA_MODE=real``, the resolved path
-points at a nonexistent sentinel so the loader can report *Data Unavailable*.
-Otherwise the resolved path still points at a valid demo file and a warning is
-logged by the loader — nothing crashes.
+The demo files under ``backend/datasets/processed/`` remain on disk for tests and
+offline pipeline generation, but they are never used as a runtime fallback for the
+main application when the user is expecting real data.
 """
 from __future__ import annotations
 
@@ -50,31 +49,20 @@ def _resolve(real_candidates: list[Path], demo: Path, label: str) -> Path:
     for path in real_candidates:
         if path.is_file():
             return path
-    if settings.data_mode_real:
-        # Real mode: missing dataset is surfaced as Data Unavailable by the
-        # loader. Point at a nonexistent sentinel to trigger that path.
-        warnings.warn(
-            f"Real dataset '{label}' not found under Real data/processed CSV "
-            f"folders ({label}) while DATA_MODE=real. Marking dataset "
-            "unavailable — the API will return 'Data Unavailable' rather than "
-            "demo data.",
-            UserWarning,
-            stacklevel=3,
-        )
-        return _PROC / label / "csv" / "__missing__"
-    if _REAL_ROOT.exists() and (
-        (_RAW.is_dir() and any(_RAW.iterdir()))
-        or (_PROC.is_dir() and any(_PROC.iterdir()))
-    ):
-        # Real folders exist but this dataset is not in them yet.
-        warnings.warn(
-            f"Real dataset '{label}' not found under Real data/raw|processed "
-            f"({label}); falling back to demo data. Place files in "
-            f"'Real data/raw/{label}/' or 'Real data/processed/{label}/csv/'.",
-            UserWarning,
-            stacklevel=3,
-        )
-    return demo
+
+    mode = settings.DATA_MODE.strip().lower()
+    if mode == "demo":
+        return demo
+
+    # Real/offline-safe mode: never silently switch to the synthetic demo files.
+    warnings.warn(
+        f"Real dataset '{label}' not found under Real data/raw|processed or the "
+        f"configured real path while DATA_MODE={mode}. The API will mark this "
+        "dataset unavailable instead of using synthetic demo data.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return _PROC / label / "csv" / "__missing__"
 
 
 def _has_real_data() -> bool:
