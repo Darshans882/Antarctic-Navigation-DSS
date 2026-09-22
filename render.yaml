@@ -2,9 +2,9 @@ services:
   - type: web
     name: antarctic-navigation-backend
     runtime: python
-    rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    rootDir: .
+    buildCommand: bash backend/build_render.sh
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     plan: free
     envVars:
@@ -12,17 +12,14 @@ services:
         value: "3.11"
       - key: HOST
         value: 0.0.0.0
-      - key: PORT
-        value: "8000"
       - key: DATA_MODE
-      
         value: real
       - key: DEMO_MODE
         value: "off"
       - key: CORS_ORIGINS
-        value: https://antarctic-navigation-frontend.onrender.com
+        value: "*"
       - key: FRONTEND_URL
-        value: https://antarctic-navigation-frontend.onrender.com
+        value: ""
 
   - type: web
     env: static
