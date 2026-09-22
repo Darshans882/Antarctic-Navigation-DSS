@@ -15,6 +15,7 @@ services:
       - key: PORT
         value: "8000"
       - key: DATA_MODE
+      
         value: real
       - key: DEMO_MODE
         value: "off"
