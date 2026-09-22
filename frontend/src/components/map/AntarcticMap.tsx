@@ -39,6 +39,7 @@ interface AntarcticMapProps {
   fitBounds?: boolean;
   refreshToken?: number;
   focusPoint?: [number, number] | null;
+  navigatorView?: boolean;
   showSeaIceLegend?: boolean;
   height?: string;
 }
@@ -75,12 +76,22 @@ function bandLabelIcon(text: string): L.DivIcon {
   });
 }
 
-function vesselIcon(): L.DivIcon {
+function calculateHeading(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
+function shipIcon(heading: number): L.DivIcon {
   return L.divIcon({
     className: "",
-    html: `<div class="vessel-marker"><span class="vessel-core"></span></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    html: `<div class="vessel-marker" style="transform: rotate(${heading}deg)"><img class="vessel-image" src="${import.meta.env.BASE_URL ?? "/"}assets/ship-realistic-orange.png" alt="" /></div>`,
+    iconSize: [64, 64],
+    iconAnchor: [32, 32],
   });
 }
 
@@ -410,6 +421,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
     fitBounds = true,
     refreshToken = 0,
     focusPoint = null,
+    navigatorView = false,
     showSeaIceLegend = true,
     height = "100%",
   } = props;
@@ -478,6 +490,32 @@ export function AntarcticMap(props: AntarcticMapProps) {
     if (vesselPos) pts.push(vesselPos);
     return pts;
   }, [recommended, alternatives, trajectory, icebergs, startPoint, endPoint, vesselPos]);
+
+  const navigatorPoints = useMemo<[number, number][]>(
+    () => recommended?.coordinates ?? [],
+    [recommended],
+  );
+
+  const heading = useMemo(() => {
+    if (!vesselPos || !recommended || recommended.coordinates.length < 2) return 0;
+    let closestIndex = 0;
+    let minDistance = Infinity;
+    const coords = recommended.coordinates;
+    for (let i = 0; i < coords.length; i++) {
+      const d = Math.hypot(coords[i][0] - vesselPos[0], coords[i][1] - vesselPos[1]);
+      if (d < minDistance) {
+        minDistance = d;
+        closestIndex = i;
+      }
+    }
+    const nextIndex = closestIndex < coords.length - 1 ? closestIndex + 1 : closestIndex;
+    const target = coords[nextIndex];
+    if (closestIndex === nextIndex) {
+       const prev = coords[closestIndex > 0 ? closestIndex - 1 : 0];
+       return calculateHeading(prev[0], prev[1], target[0], target[1]);
+    }
+    return calculateHeading(vesselPos[0], vesselPos[1], target[0], target[1]);
+  }, [vesselPos, recommended]);
 
   return (
     <div className="relative w-full" style={{ height }}>
@@ -675,11 +713,11 @@ export function AntarcticMap(props: AntarcticMapProps) {
           </Marker>
         )}
 
-        {/* Clearly visible vessel marker */}
+        {/* Clearly visible vessel marker with direction arrow */}
         {vesselPos && (
           <Marker
             position={vesselPos}
-            icon={vesselIcon()}
+            icon={shipIcon(heading)}
             title={vesselLabel}
             zIndexOffset={1000}
           >
@@ -693,7 +731,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
           </Marker>
         )}
 
-        <FitBoundsLayer points={boundPoints} enabled={fitBounds} />
+        <FitBoundsLayer points={navigatorView ? navigatorPoints : boundPoints} enabled={fitBounds} />
       </MapContainer>
 
       <div className="absolute right-3 top-3 z-[1000] flex items-start gap-2">

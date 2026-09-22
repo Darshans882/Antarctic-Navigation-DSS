@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOST=0.0.0.0 \
+    PORT=7860 \
+    DATA_MODE=real \
+    DEMO_MODE=off
+
+WORKDIR /app
+
+# Install backend dependencies only
+COPY requirements.txt ./requirements.txt
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
+
+# Copy the backend application code and model artifacts
+# Keep models inside the backend folder as required.
+COPY . .
+
+EXPOSE 7860
+
+CMD ["sh", "-c", "exec uvicorn main:app --host ${HOST:-0.0.0.0} --port ${PORT:-7860}"]

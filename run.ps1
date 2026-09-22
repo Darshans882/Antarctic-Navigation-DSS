@@ -60,22 +60,22 @@ if (-not $SkipInstall) {
     }
 }
 
-Write-Host "Starting backend at http://localhost:8000 ..." -ForegroundColor Green
+Write-Host "Starting backend on all network interfaces at http://0.0.0.0:8000 ..." -ForegroundColor Green
 Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique |
     ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
 Start-Process powershell.exe -WorkingDirectory $backendPath -ArgumentList @(
     "-NoExit",
     "-ExecutionPolicy", "Bypass",
-    "-Command", "& '$pythonPath' -m uvicorn main:app --reload --port 8000"
+    "-Command", "`$env:HOST='0.0.0.0'; `$env:CORS_ORIGINS='*'; & '$pythonPath' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 )
 
-Write-Host "Starting frontend at http://localhost:5173 ..." -ForegroundColor Green
+Write-Host "Starting frontend on all network interfaces at http://0.0.0.0:4173 ..." -ForegroundColor Green
 Start-Process powershell.exe -WorkingDirectory $frontendPath -ArgumentList @(
     "-NoExit",
     "-ExecutionPolicy", "Bypass",
-    "-Command", "& npm run dev"
+    "-Command", "& npm run dev -- --host 0.0.0.0"
 )
 
-Write-Host "Application started. Open http://localhost:5173" -ForegroundColor Green
+Write-Host "Application started. Open http://<this-computer-ip>:4173 from another device." -ForegroundColor Green
 Write-Host "Use Ctrl+C in each service window to stop it." -ForegroundColor DarkGray

@@ -31,13 +31,19 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const http = axios.create({
   baseURL: `${API_BASE_URL ?? ""}/api`,
   timeout: 30000,
-  headers: { "Content-Type": "application/json" },
+  headers: { 
+    "Content-Type": "application/json",
+    "bypass-tunnel-reminder": "true"
+  },
 });
 
 const routeHttp = axios.create({
   baseURL: `${API_BASE_URL ?? ""}/api`,
   timeout: 120000,
-  headers: { "Content-Type": "application/json" },
+  headers: { 
+    "Content-Type": "application/json",
+    "bypass-tunnel-reminder": "true"
+  },
 });
 
 routeHttp.interceptors.response.use(

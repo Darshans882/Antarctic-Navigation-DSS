@@ -583,13 +583,14 @@ export function NavigationPlannerPage() {
                 icebergs={icebergs?.icebergs ?? []}
                 recommended={journeyRoute}
                 alternatives={planning?.alternatives ?? []}
-                vesselPos={vesselPos}
+                vesselPos={journey ? vesselPos : null}
                 vesselLabel={vessel?.name ?? "Vessel"}
                 startPoint={port ? { name: port.name, lat: port.latitude, lon: port.longitude } : null}
                 endPoint={
                   center ? { name: center.name, lat: center.latitude, lon: center.longitude } : null
                 }
-                fitBounds={false}
+                fitBounds={Boolean(journey)}
+                navigatorView={Boolean(journey)}
                 refreshToken={mapRefreshToken}
                 focusPoint={alertFocus}
                 height="100%"

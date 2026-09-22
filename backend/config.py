@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         """Parsed list of allowed CORS origins."""
         origins = [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        if "*" in origins:
+            return ["*"]
         if self.FRONTEND_URL and self.FRONTEND_URL.strip() not in origins:
             origins.append(self.FRONTEND_URL.strip().rstrip("/"))
         if DEFAULT_PRODUCTION_FRONTEND_ORIGIN not in origins:

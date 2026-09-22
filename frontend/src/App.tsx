@@ -1,13 +1,15 @@
+import { lazy, Suspense } from "react";
 import { AppProvider, useApp } from "./context/AppContext";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Header } from "./components/layout/Header";
 import { ToastContainer } from "./components/common/Toast";
-import { HomePage } from "./pages/Home";
-import { SeaIceForecastPage } from "./pages/SeaIceForecast";
-import { IcebergTrackingPage } from "./pages/IcebergTracking";
-import { NavigationPlannerPage } from "./pages/NavigationPlanner";
-import { AlertMessagePage } from "./pages/AlertMessage";
-import { AssistantPage } from "./pages/Assistant";
+
+const HomePage = lazy(() => import("./pages/Home").then(m => ({ default: m.HomePage })));
+const SeaIceForecastPage = lazy(() => import("./pages/SeaIceForecast").then(m => ({ default: m.SeaIceForecastPage })));
+const IcebergTrackingPage = lazy(() => import("./pages/IcebergTracking").then(m => ({ default: m.IcebergTrackingPage })));
+const NavigationPlannerPage = lazy(() => import("./pages/NavigationPlanner").then(m => ({ default: m.NavigationPlannerPage })));
+const AlertMessagePage = lazy(() => import("./pages/AlertMessage").then(m => ({ default: m.AlertMessagePage })));
+const AssistantPage = lazy(() => import("./pages/Assistant").then(m => ({ default: m.AssistantPage })));
 
 function Page() {
   const { page } = useApp();
@@ -34,7 +36,9 @@ function Shell() {
       <div className="min-w-0 flex-1 lg:ml-64 flex flex-col min-h-screen">
         <Header />
         <main className="min-w-0 flex-1 p-4 lg:p-6 overflow-y-auto">
-          <Page />
+          <Suspense fallback={<div className="flex items-center justify-center h-full text-navy-500 text-sm">Loading...</div>}>
+            <Page />
+          </Suspense>
         </main>
         <footer className="px-6 py-3 text-[11px] text-navy-400 border-t border-slate-200 bg-white">
           Antarctic Navigation Decision Support System — Problem Statement 26059. Data sources and model status are

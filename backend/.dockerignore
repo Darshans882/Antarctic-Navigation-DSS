@@ -1,0 +1,22 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.git/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.db
+
+# Not needed for the HF backend deployment
+# The backend runtime only needs its app code and trained model files.
+datasets/
+data/
+backups/
+reports/
+notebooks/
+
+docs/
+
+# Keep frontend out of the backend build context
+../frontend/

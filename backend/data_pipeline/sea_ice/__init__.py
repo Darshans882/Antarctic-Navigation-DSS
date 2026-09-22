@@ -1,1 +1,0 @@
-"""Sea-ice dataset pipeline."""

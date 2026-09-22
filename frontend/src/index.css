@@ -127,27 +127,32 @@ body {
   }
 }
 
-/* Vessel marker — pulsing ring around a solid navy core */
+/* Vessel marker — selected top-down ship asset */
 .vessel-marker {
   position: relative;
-  width: 22px;
-  height: 22px;
+  width: 64px;
+  height: 64px;
+  transition: transform 0.5s ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .vessel-marker::before {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 12px;
   border-radius: 9999px;
-  background: rgba(11, 61, 110, 0.35);
+  background: rgba(0, 132, 255, 0.35);
   animation: vessel-pulse 2s ease-out infinite;
+  z-index: 0;
 }
-.vessel-core {
-  position: absolute;
-  inset: 6px;
-  border-radius: 9999px;
-  background: #0b3d6e;
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 0 2px rgba(11, 61, 110, 0.9);
+.vessel-image {
+  position: relative;
+  width: 42px;
+  height: 78px;
+  object-fit: contain;
+  z-index: 1;
+  filter: drop-shadow(0 5px 4px rgba(15, 23, 42, 0.5)) saturate(1.08) contrast(1.04);
 }
 @keyframes vessel-pulse {
   0% {
