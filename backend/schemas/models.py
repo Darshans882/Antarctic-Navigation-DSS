@@ -431,10 +431,19 @@ class AssistantMessage(BaseModel):
     content: str
 
 
+class DashboardState(BaseModel):
+    start_lat: float | None = None
+    start_lon: float | None = None
+    dest_lat: float | None = None
+    dest_lon: float | None = None
+    vessel_id: str | None = None
+    preference: str | None = None
+
 class AssistantChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[AssistantMessage] = Field(default_factory=list, max_length=30)
     horizon_hours: int = Field(default=24, ge=2, le=168)
+    dashboard: DashboardState | None = None
 
 
 class AssistantContextSource(BaseModel):

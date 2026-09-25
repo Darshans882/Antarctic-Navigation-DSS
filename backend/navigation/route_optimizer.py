@@ -277,12 +277,14 @@ class RouteOptimizer:
         goal_lat: float,
         goal_lon: float,
         excluded: str | None = None,
+        max_results: int = 2,
     ) -> list[dict[str, Any] | None]:
-        """Generate the other preference routes as alternatives.
+        """Generate a small, bounded set of alternative routes.
 
-        A ``None`` entry indicates that no path exists for that preference
-        (e.g. the safeness-optimal route is fully blocked); the caller is
-        expected to surface this as a warning.
+        The dashboard only needs a couple of useful alternatives to compare with
+        the recommended route, so a hard cap avoids expensive recomputation of all
+        preference variants on every request. A ``None`` entry indicates that no
+        path exists for a preference and is surfaced as a warning.
         """
         results: list[dict[str, Any] | None] = []
         for preference in _PREFERENCE_ORDER:
@@ -294,4 +296,6 @@ class RouteOptimizer:
                 )
             except NoPathFoundError:
                 results.append(None)
+            if len(results) >= max_results:
+                break
         return results

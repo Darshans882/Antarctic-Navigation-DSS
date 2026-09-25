@@ -152,7 +152,12 @@ class NavigationService:
         alt_list: list[dict] = []
         seen_routes = {tuple(recommended["coordinates"])}
         for alternative in optimizer.alternatives(
-            start_lat, start_lon, dest_lat, dest_lon, excluded=preference
+            start_lat,
+            start_lon,
+            dest_lat,
+            dest_lon,
+            excluded=preference,
+            max_results=2,
         ):
             if alternative is None:
                 warnings.append(

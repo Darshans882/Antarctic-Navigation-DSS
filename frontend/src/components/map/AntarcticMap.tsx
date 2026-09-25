@@ -430,6 +430,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
   const [touchPinned, setTouchPinned] = useState(false);
   const [graticuleVisible, setGraticuleVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [animatedVesselPos, setAnimatedVesselPos] = useState<[number, number] | null>(vesselPos ?? null);
   const savedView = useMemo(() => {
     try {
       const raw = sessionStorage.getItem("antarctic-map-view");
@@ -496,13 +497,42 @@ export function AntarcticMap(props: AntarcticMapProps) {
     [recommended],
   );
 
+  useEffect(() => {
+    if (!vesselPos) {
+      setAnimatedVesselPos(null);
+      return;
+    }
+
+    const from = animatedVesselPos ?? vesselPos;
+    let frameId = 0;
+    let start: number | null = null;
+    const durationMs = 900;
+
+    const tick = (time: number) => {
+      if (start === null) start = time;
+      const progress = Math.min((time - start) / durationMs, 1);
+      const lat = from[0] + (vesselPos[0] - from[0]) * progress;
+      const lon = from[1] + (vesselPos[1] - from[1]) * progress;
+      setAnimatedVesselPos([lat, lon]);
+
+      if (progress < 1) {
+        frameId = requestAnimationFrame(tick);
+      }
+    };
+
+    frameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frameId);
+  }, [vesselPos]);
+
+  const activeVesselPos = animatedVesselPos ?? vesselPos ?? null;
+
   const heading = useMemo(() => {
-    if (!vesselPos || !recommended || recommended.coordinates.length < 2) return 0;
+    if (!activeVesselPos || !recommended || recommended.coordinates.length < 2) return 0;
     let closestIndex = 0;
     let minDistance = Infinity;
     const coords = recommended.coordinates;
     for (let i = 0; i < coords.length; i++) {
-      const d = Math.hypot(coords[i][0] - vesselPos[0], coords[i][1] - vesselPos[1]);
+      const d = Math.hypot(coords[i][0] - activeVesselPos[0], coords[i][1] - activeVesselPos[1]);
       if (d < minDistance) {
         minDistance = d;
         closestIndex = i;
@@ -514,8 +544,8 @@ export function AntarcticMap(props: AntarcticMapProps) {
        const prev = coords[closestIndex > 0 ? closestIndex - 1 : 0];
        return calculateHeading(prev[0], prev[1], target[0], target[1]);
     }
-    return calculateHeading(vesselPos[0], vesselPos[1], target[0], target[1]);
-  }, [vesselPos, recommended]);
+    return calculateHeading(activeVesselPos[0], activeVesselPos[1], target[0], target[1]);
+  }, [activeVesselPos, recommended]);
 
   return (
     <div className="relative w-full" style={{ height }}>
@@ -714,9 +744,9 @@ export function AntarcticMap(props: AntarcticMapProps) {
         )}
 
         {/* Clearly visible vessel marker with direction arrow */}
-        {vesselPos && (
+        {activeVesselPos && (
           <Marker
-            position={vesselPos}
+            position={activeVesselPos}
             icon={shipIcon(heading)}
             title={vesselLabel}
             zIndexOffset={1000}
@@ -725,7 +755,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
               <div className="text-xs">
                 <strong>{vesselLabel}</strong>
                 <br />
-                {vesselPos[0].toFixed(3)}, {vesselPos[1].toFixed(3)}
+                {activeVesselPos[0].toFixed(3)}, {activeVesselPos[1].toFixed(3)}
               </div>
             </Popup>
           </Marker>

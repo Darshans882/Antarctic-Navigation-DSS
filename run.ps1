@@ -70,6 +70,24 @@ Start-Process powershell.exe -WorkingDirectory $backendPath -ArgumentList @(
     "-Command", "`$env:HOST='0.0.0.0'; `$env:CORS_ORIGINS='*'; & '$pythonPath' -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 )
 
+Write-Host "Waiting for backend health check..." -ForegroundColor Cyan
+$backendReady = $false
+for ($attempt = 1; $attempt -le 120; $attempt++) {
+    try {
+        $health = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/health" -UseBasicParsing -TimeoutSec 2
+        if ($health.StatusCode -eq 200) {
+            $backendReady = $true
+            break
+        }
+    }
+    catch {
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $backendReady) {
+    throw "Backend did not become healthy within 120 seconds. Check the backend service window for startup errors."
+}
+
 Write-Host "Starting frontend on all network interfaces at http://0.0.0.0:4173 ..." -ForegroundColor Green
 Start-Process powershell.exe -WorkingDirectory $frontendPath -ArgumentList @(
     "-NoExit",

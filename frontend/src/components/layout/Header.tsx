@@ -15,13 +15,14 @@ export function Header() {
     <header className="h-14 bg-white border-b border-slate-200 flex items-center px-4 lg:px-6 shrink-0">
       <button
         onClick={toggleSidebar}
-        className="lg:hidden mr-3 text-navy-500 hover:text-navy-800"
+        className="lg:hidden mr-3 text-navy-500 hover:text-navy-800 p-1.5 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+        title="Open Sidebar"
       >
         <Bars3Icon className="w-5 h-5" />
       </button>
 
       <h2 className="text-sm font-medium text-navy-700 hidden sm:block">
-        Antarctic Navigation Decision Support System
+        Antarctic Route Explorer
       </h2>
 
       <div className="ml-auto flex items-center gap-3">

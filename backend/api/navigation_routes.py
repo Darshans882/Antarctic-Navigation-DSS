@@ -162,7 +162,12 @@ def optimize_route(request: RouteOptimizationRequest) -> RouteOptimizationRespon
 
     alternative_routes: list[RouteResult] = []
     for alternative in optimizer.alternatives(
-        start_lat, start_lon, goal_lat, goal_lon, excluded=preference
+        start_lat,
+        start_lon,
+        goal_lat,
+        goal_lon,
+        excluded=preference,
+        max_results=2,
     ):
         if alternative is None:
             warnings.append(

@@ -146,7 +146,7 @@ def run_llm(provider: str, model: str, messages: list[dict]) -> str:
 # --------------------------------------------------------------------------
 # Intent detection -> which tools to run
 # --------------------------------------------------------------------------
-def _pick_tools(question: str, horizon: int) -> list[tuple[str, dict]]:
+def _pick_tools(question: str, horizon: int, dashboard: Any = None) -> list[tuple[str, dict]]:
     q = question.lower()
     tools: list[tuple[str, dict]] = []
     ids = extracted_iceberg_ids(question)
@@ -169,10 +169,17 @@ def _pick_tools(question: str, horizon: int) -> list[tuple[str, dict]]:
     if "forecast" in q or "prediction" in q or "accuracy" in q:
         tools.append(("model_metrics", {"pipeline": "sea_ice" if "sea" in q else None}))
 
+    route_kwargs = dict(DEFAULT_ROUTE)
+    if dashboard:
+        dashboard_dict = dashboard.model_dump() if hasattr(dashboard, "model_dump") else dashboard
+        for k, v in dashboard_dict.items():
+            if v is not None:
+                route_kwargs[k] = v
+
     if "route" in q or "fuel" in q or "risk" in q:
-        tools.append(("route_details", dict(DEFAULT_ROUTE)))
+        tools.append(("route_details", route_kwargs))
     if "fuel" in q:
-        tools.append(("fuel_estimate", dict(DEFAULT_ROUTE)))
+        tools.append(("fuel_estimate", route_kwargs))
 
     if "closest" in q or "nearest" in q:
         tools.append(("closest_iceberg", {}))
@@ -200,6 +207,7 @@ class AssistantService:
         question: str,
         history: list[dict] | None = None,
         horizon_hours: int = 24,
+        dashboard: Any = None,
     ) -> dict:
         horizon = max(2, min(168, int(horizon_hours)))
         provider_info = resolve_provider()
@@ -207,7 +215,7 @@ class AssistantService:
 
         tool_results = [
             TOOLS[name](**kwargs)
-            for name, kwargs in _pick_tools(question, horizon)
+            for name, kwargs in _pick_tools(question, horizon, dashboard)
         ]
         # always know whether the data is real or demo
         if not any(r.get("name") == "datasets_status" for r in tool_results):
@@ -234,8 +242,6 @@ class AssistantService:
             answer = prompts.build_fallback(question, tool_results)
             llm = {"provider": "none", "model": None, "configured": False}
             llm_note = provider_info.get("reason")
-            if llm_note:
-                warnings.append(llm_note)
         else:
             messages = [
                 {"role": "system", "content": prompts.SYSTEM_PROMPT},

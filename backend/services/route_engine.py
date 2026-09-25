@@ -18,6 +18,8 @@ snapshot, exactly like the pre-existing per-call engine builds.
 """
 from __future__ import annotations
 
+import copy
+import json
 from datetime import datetime, timezone
 import time
 from pathlib import Path
@@ -44,6 +46,20 @@ _WEATHER_SEVERITY_CACHE: dict[str, tuple[np.ndarray, bool]] = {}
 _SOURCE_CACHE_TTL_SECONDS = 120.0
 _SOURCE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _LAND_MASK_CACHE: dict[str, tuple[np.ndarray | None, dict[str, Any]]] = {}
+_ENGINE_CACHE_TTL_SECONDS = 300.0
+_ENGINE_CACHE: dict[tuple[str, str, str, str], tuple[float, tuple[AntarcticGrid, RiskEngine, list[str], str]]] = {}
+
+
+def _engine_cache_key(vessel: dict[str, Any], ts: datetime | None, config: dict[str, Any]) -> tuple[str, str, str, str]:
+    """Key the assembled engine cache by the request-impacting inputs."""
+    timestamp = ts or datetime.now(timezone.utc).replace(tzinfo=None)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.replace(tzinfo=None)
+    vessel_key = str(vessel.get("vessel_id") or vessel.get("id") or "unknown")
+    ts_key = timestamp.strftime("%Y-%m-%dT%H:00:00")
+    config_key = json.dumps({k: config.get(k) for k in sorted(config)}, sort_keys=True, default=str)
+    land_mask_key = str(settings.LAND_MASK_FILE or DEFAULT_LAND_MASK_FILE)
+    return (vessel_key, ts_key, config_key, land_mask_key)
 
 
 def _source_fingerprint() -> str:
@@ -226,6 +242,13 @@ def build_route_engine(
         ts = ts.replace(tzinfo=None)
 
     started = time.perf_counter()
+    cache_key = _engine_cache_key(vessel, ts, config)
+    cached = _ENGINE_CACHE.get(cache_key)
+    now = time.time()
+    if cached is not None and (now - cached[0]) < _ENGINE_CACHE_TTL_SECONDS:
+        logger.info("ROUTE_ENGINE_CACHE_HIT vessel=%s elapsed_ms=%.1f", cache_key[0], (time.perf_counter() - started) * 1000)
+        return copy.deepcopy(cached[1])
+
     logger.info("ROUTE_CALCULATION_STARTED")
     grid = AntarcticGrid.from_config(config)
     risk_config = RiskConfig.from_dict(config)
@@ -303,6 +326,7 @@ def build_route_engine(
         int(engine.blocked_mask.sum()),
         (time.perf_counter() - started) * 1000,
     )
+    _ENGINE_CACHE[cache_key] = (time.time(), (grid, engine, notes, classification))
     return grid, engine, notes, classification
 
 

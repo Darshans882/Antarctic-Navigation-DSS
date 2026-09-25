@@ -30,10 +30,11 @@ function Page() {
 }
 
 function Shell() {
+  const { sidebarOpen } = useApp();
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-navy-900 flex">
+    <div className="min-h-screen bg-[#f0f8ff] text-navy-900 flex">
       <Sidebar />
-      <div className="min-w-0 flex-1 lg:ml-64 flex flex-col min-h-screen">
+      <div className={`min-w-0 flex-1 flex flex-col min-h-screen transition-all duration-300 ${sidebarOpen ? "lg:ml-64" : "lg:ml-16"}`}>
         <Header />
         <main className="min-w-0 flex-1 p-4 lg:p-6 overflow-y-auto">
           <Suspense fallback={<div className="flex items-center justify-center h-full text-navy-500 text-sm">Loading...</div>}>
@@ -41,7 +42,7 @@ function Shell() {
           </Suspense>
         </main>
         <footer className="px-6 py-3 text-[11px] text-navy-400 border-t border-slate-200 bg-white">
-          Antarctic Navigation Decision Support System — Problem Statement 26059. Data sources and model status are
+          Antarctic Route Explorer — Problem Statement 26059. Data sources and model status are
           always shown in-page. Predictions are estimates based on processed observations and should not be the sole
           basis for navigation safety decisions.
         </footer>

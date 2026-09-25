@@ -197,7 +197,7 @@ export function NavigationPlannerPage() {
         position_mode: "simulation",
       });
       setJourney(j);
-      setNavigation({ selectedRoute: journeyToRoute(j) });
+      setNavigation({ selectedRoute: selectedRoute ?? journeyToRoute(j) });
       await fetchStatus(j.journey_id);
       await fetchAlternatives(port, center, vesselId);
       toast(`Journey started — ${j.origin} → ${j.destination} (${j.journey_mode})`, "success");
@@ -206,7 +206,7 @@ export function NavigationPlannerPage() {
     } finally {
       setBusy(null);
     }
-  }, [port, center, vesselId, mode, fetchStatus, fetchAlternatives, toast]);
+  }, [port, center, vesselId, mode, selectedRoute, fetchStatus, fetchAlternatives, toast]);
 
   const advance = useCallback(async () => {
     if (!journey) {
@@ -217,7 +217,7 @@ export function NavigationPlannerPage() {
     try {
       const j = await api.advanceJourney(journey.journey_id);
       setJourney(j);
-      setNavigation({ selectedRoute: journeyToRoute(j) });
+      setNavigation({ selectedRoute: selectedRoute ?? journeyToRoute(j) });
       await fetchStatus(j.journey_id);
       toast(`Advanced 2 simulated hours — route update #${j.route_update_count}`, "success");
     } catch (e) {
@@ -225,7 +225,7 @@ export function NavigationPlannerPage() {
     } finally {
       setBusy(null);
     }
-  }, [journey, fetchStatus, toast]);
+  }, [journey, selectedRoute, fetchStatus, toast]);
 
   const recalc = useCallback(async () => {
     if (!journey) {
@@ -242,7 +242,7 @@ export function NavigationPlannerPage() {
     try {
       const j = await api.recalculateJourney(journey.journey_id, lat, lon);
       setJourney(j);
-      setNavigation({ selectedRoute: journeyToRoute(j) });
+      setNavigation({ selectedRoute: selectedRoute ?? journeyToRoute(j) });
       await fetchStatus(j.journey_id);
       toast(`Route recalculated from ${coords(lat, lon)}`, "success");
     } catch (e) {
@@ -250,7 +250,7 @@ export function NavigationPlannerPage() {
     } finally {
       setBusy(null);
     }
-  }, [journey, liveLat, liveLon, fetchStatus, toast]);
+  }, [journey, liveLat, liveLon, selectedRoute, fetchStatus, toast]);
 
   const resetDetails = useCallback(() => {
     setNavigation({ journey: null, status: null, planning: null, selectedRoute: null, liveLat: "", liveLon: "" });

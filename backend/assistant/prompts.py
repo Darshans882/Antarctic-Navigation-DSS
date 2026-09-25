@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-SYSTEM_PROMPT = """You are the navigation analyst assistant for the Antarctic Navigation Decision Support System (Problem Statement 26059).
+SYSTEM_PROMPT = """You are the navigation analyst assistant for the Antarctic Navigation Decision Support System (Problem Statement 26059). You are directly assisting a ship captain.
 
-You answer questions about sea-ice forecasts, iceberg drift predictions, route recommendations, distances and fuel estimates. You ALWAYS ground your answers in the CONTEXT block provided at the end of the user message, which comes from the project's own backend API. You never know anything the context does not say.
+You answer questions about sea-ice forecasts, iceberg drift predictions, route recommendations, distances and fuel estimates. You ALWAYS ground your answers about navigation and data in the CONTEXT block provided at the end of the user message, which comes from the project's own backend API. However, you are also capable of natural conversation. If the captain greets you (e.g., "Hi", "Hello"), respond naturally and politely, asking how you can assist with their voyage or project today.
 
 Hard rules:
 1. NEVER claim a route is guaranteed safe. Routes are planning aids produced under model assumptions.
@@ -122,11 +122,11 @@ def build_fallback(question: str, results: list[dict]) -> str:
         if fc and fc.get("data"):
             d = fc["data"]
             fc_text = (
-                f"The sea-ice forecast for the next {d.get('horizon_hours', 24)} h "
-                f"(model: {d.get('model', 'persistence')}) estimates a mean concentration of "
+                f"Captain, the sea-ice forecast for the next {d.get('horizon_hours', 24)} h "
+                f"(using the {d.get('model', 'persistence')} model) estimates a mean concentration of "
                 f"{d.get('mean_concentration', 0) * 100:.1f}% and a maximum of "
-                f"{d.get('max_concentration', 0) * 100:.1f}% (grid coverage {d.get('coverage_pct', 0):.1f}%). "
-                f"This is a projected field, not an observation."
+                f"{d.get('max_concentration', 0) * 100:.1f}%. The grid coverage is {d.get('coverage_pct', 0):.1f}%. "
+                f"Please note this is a projected field, not a direct observation."
             )
             if d.get("model_used_real") is False:
                 fc_text += " The model has not been trained on real observations."
@@ -163,8 +163,8 @@ def build_fallback(question: str, results: list[dict]) -> str:
             obs = d.get("observed_positions") or []
             pred = d.get("predicted_positions") or []
             lines.append(
-                f"Iceberg {d.get('iceberg_id')}: {len(obs)} observed position(s) and "
-                f"{len(pred)} predicted position(s) were returned."
+                f"Captain, for Iceberg {d.get('iceberg_id')}, I have {len(obs)} observed position(s) and "
+                f"{len(pred)} predicted position(s) available."
             )
             if obs:
                 last = obs[-1]
@@ -201,9 +201,9 @@ def build_fallback(question: str, results: list[dict]) -> str:
         if dist and dist.get("data"):
             d = dist["data"]
             lines.append(
-                f"Distance between {d.get('iceberg_a')} and {d.get('iceberg_b')}: "
+                f"Captain, the distance between {d.get('iceberg_a')} and {d.get('iceberg_b')} is "
                 f"{d.get('distance_km', 0):.1f} km ({d.get('distance_nm', 0):.1f} nm). "
-                f"This is a great-circle (haversine) distance from the latest reported positions."
+                f"This is the great-circle distance based on their latest reported positions."
             )
         else:
             lines.append("I could not calculate that distance (one of the iceberg IDs may be unknown).")
@@ -214,9 +214,9 @@ def build_fallback(question: str, results: list[dict]) -> str:
         if cl and cl.get("data"):
             d = cl["data"]
             lines.append(
-                f"The closest tracked iceberg to the reference vessel position "
+                f"Captain, the closest tracked iceberg to your reference position "
                 f"({d.get('reference_position_lat')}, {d.get('reference_position_lon')}) is "
-                f"{d.get('closest_iceberg')} at about {d.get('closest_distance_km')} km. "
+                f"{d.get('closest_iceberg')} at a distance of about {d.get('closest_distance_km')} km. "
                 f"({d.get('how')})"
             )
         else:
@@ -255,11 +255,11 @@ def build_fallback(question: str, results: list[dict]) -> str:
             rec = d.get("recommended") or {}
             if rec:
                 lines.append(
-                    f"The recommended route ({d.get('vessel_id')}, preference "
+                    f"Captain, the recommended route for {d.get('vessel_id')} (preference: "
                     f"'{d.get('preference')}') is estimated at {rec.get('distance_km', 0):.0f} km "
-                    f"({rec.get('distance_nm', 0):.0f} nm), ~{rec.get('travel_time_hours', 0):.1f} h, "
-                    f"fuel {rec.get('fuel_tons', 0) if rec.get('fuel_tons') is not None else 'n/a'} t, "
-                    f"risk level {rec.get('risk_level', 'n/a')} (score {rec.get('risk_score', 'n/a')})."
+                    f"({rec.get('distance_nm', 0):.0f} nm), taking approximately {rec.get('travel_time_hours', 0):.1f} h. "
+                    f"Estimated fuel is {rec.get('fuel_tons', 0) if rec.get('fuel_tons') is not None else 'n/a'} t, "
+                    f"with a risk level assessed as {rec.get('risk_level', 'n/a')} (score {rec.get('risk_score', 'n/a')})."
                 )
             alts = d.get("alternatives") or []
             if alts:
@@ -299,12 +299,11 @@ def build_fallback(question: str, results: list[dict]) -> str:
             rec = rte["data"].get("recommended") or {}
             alts = rte["data"].get("alternatives") or []
             lines.append(
-                "The recommended route is the backend's balanced outcome for the chosen "
-                f"preference ('{rte['data'].get('preference')}'), balancing distance "
-                f"({rec.get('distance_km', 0):.0f} km), time ({rec.get('travel_time_hours', 0):.1f} h), "
-                f"fuel and assessed risk ({rec.get('risk_level', 'n/a')}). If you compare with the "
-                f"{len(alts)} alternative(s), it is not necessarily the shortest or cheapest "
-                "option — it is the one the optimizer weights as most appropriate for that preference."
+                "Captain, I selected this route because it provides the best overall balance "
+                f"for your selected preference ('{rte['data'].get('preference')}'). It optimally balances the distance "
+                f"({rec.get('distance_km', 0):.0f} km), travel time ({rec.get('travel_time_hours', 0):.1f} h), "
+                f"estimated fuel, and the assessed risk level ({rec.get('risk_level', 'n/a')}). While it might not "
+                f"be the absolute shortest or cheapest compared to the {len(alts)} alternative(s), it is the most appropriate and balanced choice for these conditions."
             )
 
     if "how many" in q and "iceberg" in q:
@@ -315,21 +314,15 @@ def build_fallback(question: str, results: list[dict]) -> str:
             lines.append("I could not retrieve the iceberg list.")
 
     if not lines:
-        lines.append(
-            "This environment is running without a configured LLM provider, so I can "
-            "only answer using the backend template. Ask me about sea-ice forecasts, "
-            "iceberg positions, distances, routes, fuel or risks."
-        )
-
-    if demo_names:
-        lines.append(
-            "Note: the data behind this answer is DEMO (synthetic) data — it carries "
-            "no real-world information."
-        )
-    elif any_real:
-        lines.append(
-            "Note: this answer is based on processed pipeline data; treat predictions "
-            "as estimates, and no navigation plan is guaranteed safe."
-        )
+        if any(greet in q for greet in ("hi", "hello", "hey", "greetings")):
+            lines.append(
+                "Greetings, Captain. How can I assist you with your voyage or project today? "
+                "I can help with sea-ice forecasts, iceberg positions, distances, routes, fuel estimates, and risks."
+            )
+        else:
+            lines.append(
+                "I'm sorry, Captain, but I couldn't find any relevant data for that request. "
+                "Please ask me about sea-ice forecasts, iceberg positions, distances, routes, fuel estimates, or risks."
+            )
 
     return "\n\n".join(lines)

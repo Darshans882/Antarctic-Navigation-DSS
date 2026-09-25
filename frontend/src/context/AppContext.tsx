@@ -15,6 +15,7 @@ import type {
   JourneyStatus,
   PageId,
   RoutesOptimizeResponse,
+  AssistantContextSource,
 } from "../types";
 export const ALERT_CONFIG = {
   routeDistanceChangeKm: 50,
@@ -27,13 +28,20 @@ interface Toast {
   type: "info" | "success" | "error";
 }
 
+export interface UiMessage {
+  role: "user" | "assistant";
+  content: string;
+  sources?: AssistantContextSource[];
+  warnings?: string[];
+}
+
 interface AppCtx {
   page: PageId;
   setPage: (p: PageId) => void;
   alerts: AlertRecord[];
   unreadAlertCount: number;
   addAlert: (alert: Omit<AlertRecord, "id" | "timestamp" | "read"> & { id?: string }) => void;
-    replaceRouteAlerts: (alerts: AlertRecord[]) => void;
+  replaceRouteAlerts: (alerts: AlertRecord[]) => void;
   markAlertRead: (id: string, read?: boolean) => void;
   markAllAlertsRead: () => void;
   deleteAlert: (id: string) => void;
@@ -48,6 +56,8 @@ interface AppCtx {
   setActiveRoute: (route: RoutesOptimizeResponse | null) => void;
   navigation: NavigationSnapshot;
   setNavigation: (next: Partial<NavigationSnapshot>) => void;
+  assistantMessages: UiMessage[];
+  setAssistantMessages: (m: UiMessage[] | ((prev: UiMessage[]) => UiMessage[])) => void;
 }
 
 export interface NavigationSnapshot {
@@ -113,6 +123,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     selectedRoute: null,
     alertFocus: null,
   });
+  const [assistantMessages, setAssistantMessages] = useState<UiMessage[]>([]);
   const setPage = useCallback((nextPage: PageId) => {
     setPageState(nextPage);
     const paths: Record<PageId, string> = {
@@ -141,6 +152,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const id = ++toastId;
       setToasts((t) => [...t, { id, message, type }]);
       setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 5000);
+
+      // Play voice alert
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel(); // Cancel any ongoing speech
+        const utterance = new SpeechSynthesisUtterance(message);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
     },
     [],
   );
@@ -206,7 +226,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       alerts,
       unreadAlertCount: alerts.filter((alert) => !alert.read).length,
       addAlert,
-        replaceRouteAlerts,
+      replaceRouteAlerts,
       markAlertRead,
       markAllAlertsRead,
       deleteAlert,
@@ -221,8 +241,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setActiveRoute,
       navigation,
       setNavigation,
+      assistantMessages,
+      setAssistantMessages,
     }),
-    [page, alerts, addAlert, replaceRouteAlerts, markAlertRead, markAllAlertsRead, deleteAlert, clearAlerts, sidebarOpen, toasts, toast, removeToast, toggleSidebar, activeRoute, navigation, setNavigation, setActiveRoute],
+    [page, alerts, addAlert, replaceRouteAlerts, markAlertRead, markAllAlertsRead, deleteAlert, clearAlerts, sidebarOpen, toasts, toast, removeToast, toggleSidebar, activeRoute, navigation, setNavigation, setActiveRoute, assistantMessages, setAssistantMessages],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

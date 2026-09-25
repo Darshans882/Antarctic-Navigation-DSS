@@ -436,6 +436,14 @@ export interface AssistantChatRequest {
   question: string;
   history: AssistantMessage[];
   horizon_hours?: number;
+  dashboard?: {
+    start_lat?: number;
+    start_lon?: number;
+    dest_lat?: number;
+    dest_lon?: number;
+    vessel_id?: string;
+    preference?: string;
+  };
 }
 
 export interface AssistantContextSource {

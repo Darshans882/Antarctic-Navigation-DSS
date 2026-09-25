@@ -28,6 +28,20 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+const inFlightRequests = new Map<string, Promise<unknown>>();
+
+function memoizedRequest<T>(key: string, request: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const promise = request().finally(() => {
+    inFlightRequests.delete(key);
+  });
+
+  inFlightRequests.set(key, promise as Promise<unknown>);
+  return promise;
+}
+
 const http = axios.create({
   baseURL: `${API_BASE_URL ?? ""}/api`,
   timeout: 30000,
@@ -80,11 +94,13 @@ export const api = {
     http.get<SeaIceCurrentResponse>("/sea-ice/current").then((r) => r.data),
 
   seaIceForecast: (horizonHours: number, model = "persistence") =>
-    http
-      .get<SeaIceForecastResponse>("/sea-ice/forecast", {
-        params: { horizon_hours: horizonHours, model },
-      })
-      .then((r) => r.data),
+    memoizedRequest(`seaIceForecast:${horizonHours}:${model}`, () =>
+      http
+        .get<SeaIceForecastResponse>("/sea-ice/forecast", {
+          params: { horizon_hours: horizonHours, model },
+        })
+        .then((r) => r.data),
+    ),
 
   icebergs: () =>
     http.get<IcebergsListResponse>("/icebergs").then((r) => r.data),
@@ -101,9 +117,11 @@ export const api = {
       .then((r) => r.data),
 
   icebergTrajectory: (id: string) =>
-    http
-      .get<IcebergTrajectoryResponse>(`/icebergs/${id}/trajectory`)
-      .then((r) => r.data),
+    memoizedRequest(`icebergTrajectory:${id}`, () =>
+      http
+        .get<IcebergTrajectoryResponse>(`/icebergs/${id}/trajectory`)
+        .then((r) => r.data),
+    ),
 
   icebergDistance: (a: string, b: string) =>
     http
@@ -119,8 +137,12 @@ export const api = {
     destination_longitude: number;
     vessel_id: string;
     preference: string;
-  }) =>
-    routeHttp.post<RoutesOptimizeResponse>("/routes/optimize", payload).then((r) => r.data),
+  }) => {
+    const key = `routesOptimize:${payload.vessel_id}:${payload.preference}:${payload.start_latitude}:${payload.start_longitude}:${payload.destination_latitude}:${payload.destination_longitude}`;
+    return memoizedRequest(key, () =>
+      routeHttp.post<RoutesOptimizeResponse>("/routes/optimize", payload).then((r) => r.data),
+    );
+  },
 
   routeDetail: (id: string) =>
     http.get<RouteDetailResponse>(`/routes/${id}`).then((r) => r.data),

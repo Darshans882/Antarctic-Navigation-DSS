@@ -35,6 +35,7 @@ async def chat(req: AssistantChatRequest) -> AssistantChatResponse:
             question=question,
             history=history,
             horizon_hours=req.horizon_hours,
+            dashboard=req.dashboard,
         )
     except Exception as exc:  # noqa: BLE001 - never leak internals
         raise HTTPException(status_code=503, detail=f"Assistant unavailable: {exc}") from exc

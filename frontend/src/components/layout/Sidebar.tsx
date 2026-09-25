@@ -7,6 +7,7 @@ import {
   ChatBubbleLeftEllipsisIcon,
   HomeIcon,
   Bars3Icon,
+  ChevronRightIcon,
 } from "@heroicons/react/24/outline";
 
 const NAV_ITEMS: { id: import("../../types").PageId; label: string; icon: typeof HomeIcon }[] = [
@@ -31,39 +32,42 @@ export function Sidebar() {
       )}
 
       <aside
-        className={`fixed top-0 left-0 z-40 h-full w-64 bg-white border-r border-slate-200 shadow-sidebar transition-transform duration-200
-          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          lg:translate-x-0`}
+        className={`fixed top-0 left-0 z-40 h-full bg-white border-r border-slate-200 shadow-sidebar transition-all duration-300 overflow-hidden flex flex-col
+          ${sidebarOpen ? "w-64 translate-x-0" : "-translate-x-full lg:translate-x-0 lg:w-16"}`}
       >
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100">
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-blue text-white">
-            <CogIcon className="w-5 h-5" />
+        <div className={`flex items-center py-4 border-b border-slate-100 ${sidebarOpen ? "px-3 gap-2" : "px-0 justify-center"}`}>
+          
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="hidden lg:flex items-center justify-center w-8 h-8 rounded-md text-navy-600 hover:text-navy-900 hover:bg-slate-100 transition-colors shrink-0"
+            title={sidebarOpen ? "Close Sidebar" : "Open Sidebar"}
+          >
+            {sidebarOpen ? <Bars3Icon className="w-6 h-6" /> : <ChevronRightIcon className="w-5 h-5 stroke-2" />}
+          </button>
+
+          <div className={`flex items-center ${sidebarOpen ? "" : "hidden"}`}>
+            <img src="/logo.png" alt="Antarctic Route Explorer" className="h-14 w-[170px] object-contain object-left" />
           </div>
-          <div>
-            <h1 className="text-sm font-semibold text-navy-900 leading-tight">
-              Antarctic DSS
-            </h1>
-            <p className="text-[11px] text-navy-400 leading-tight">
-              Navigation Support
-            </p>
-          </div>
+
           <button
             onClick={() => setSidebarOpen(false)}
-            className="ml-auto lg:hidden text-navy-400 hover:text-navy-700"
+            className={`ml-auto text-navy-400 hover:text-navy-700 ${sidebarOpen ? "block lg:hidden" : "hidden"}`}
           >
             <Bars3Icon className="w-5 h-5" />
           </button>
         </div>
 
-        <nav className="px-3 py-3 space-y-0.5">
+        <nav className={`px-3 py-3 space-y-0.5 flex-1 overflow-y-auto ${sidebarOpen ? "" : "flex flex-col items-center"}`}>
           {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
+              title={!sidebarOpen ? label : undefined}
               onClick={() => {
                 setPage(id);
-                setSidebarOpen(false);
+                if (window.innerWidth < 1024) setSidebarOpen(false);
               }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+              className={`flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                ${sidebarOpen ? "w-full px-3" : "w-10 justify-center px-0"}
                 ${
                   page === id
                     ? "bg-accent-blue/10 text-accent-blue"
@@ -71,15 +75,17 @@ export function Sidebar() {
                 }`}
             >
               <Icon className="w-[18px] h-[18px] shrink-0" />
-              {label}
+              <span className={`whitespace-nowrap transition-opacity duration-200 ${sidebarOpen ? "opacity-100" : "opacity-0 hidden"}`}>
+                {label}
+              </span>
             </button>
           ))}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 px-3 py-3 border-t border-slate-100">
-          <p className="text-[11px] text-navy-400 text-center">
-            Problem Statement 26059
-          </p>
+        <div className={`px-3 py-3 border-t border-slate-100 ${sidebarOpen ? "" : "flex justify-center"}`}>
+           <p className={`text-[11px] text-navy-400 text-center whitespace-nowrap ${sidebarOpen ? "block" : "hidden"}`}>
+             Problem Statement 26059
+           </p>
         </div>
       </aside>
     </>

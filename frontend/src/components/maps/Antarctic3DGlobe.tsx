@@ -259,9 +259,8 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
   );
 
   // --- camera control ---
-  // Full-Earth default view: whole globe in frame, classic map angle,
-  // Antarctica visible near the bottom edge.
-  const HOME_POV = useMemo(() => ({ lat: 25, lng: 15, altitude: 2.7 }), []);
+  // Antarctica-focused default view: Southern Ocean and Antarctic continent center stage.
+  const HOME_POV = useMemo(() => ({ lat: -90, lng: 0, altitude: 1.6 }), []);
 
   const flyToIceberg = useCallback(
     (id: string | null | undefined) => {

@@ -7,17 +7,10 @@ import {
 import { api } from "../services/api";
 import { useApp } from "../context/AppContext";
 import type {
-  AssistantContextSource,
   AssistantMessage,
 } from "../types";
 
-interface UiMessage {
-  role: "user" | "assistant";
-  content: string;
-  sources?: AssistantContextSource[];
-  llmLabel?: string;
-  warnings?: string[];
-}
+
 
 const SUGGESTIONS = [
   "Why was this route selected?",
@@ -32,16 +25,11 @@ const SUGGESTIONS = [
 const HORIZON_OPTIONS = [24, 48, 72, 120];
 
 export function AIAssistant() {
-  const { toast } = useApp();
+  const { toast, assistantMessages: messages, setAssistantMessages: setMessages, activeRoute, navigation } = useApp();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [horizon, setHorizon] = useState(24);
-  const [messages, setMessages] = useState<UiMessage[]>([]);
-  const [llmStatus, setLlmStatus] = useState<{
-    provider: string;
-    model: string | null;
-    configured: boolean;
-  } | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,12 +52,25 @@ export function AIAssistant() {
       setInput("");
       setBusy(true);
       try {
+        const dashboardState: any = {};
+        if (activeRoute) {
+          dashboardState.vessel_id = activeRoute.vessel_id;
+          dashboardState.preference = activeRoute.preference;
+          dashboardState.start_lat = activeRoute.start_latitude;
+          dashboardState.start_lon = activeRoute.start_longitude;
+          dashboardState.dest_lat = activeRoute.destination_latitude;
+          dashboardState.dest_lon = activeRoute.destination_longitude;
+        } else if (navigation) {
+          dashboardState.vessel_id = navigation.vesselId;
+        }
+        
         const res = await api.assistantChat({
           question: q,
           history,
           horizon_hours: horizon,
+          dashboard: dashboardState,
         });
-        setLlmStatus(res.llm);
+
         setMessages((m) => [
           ...m,
           {
@@ -79,9 +80,6 @@ export function AIAssistant() {
             warnings: res.warnings,
           },
         ]);
-        if (!res.llm.configured) {
-          toast("No LLM configured — answering from the backend template", "info");
-        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setMessages((m) => [
@@ -96,12 +94,12 @@ export function AIAssistant() {
         setBusy(false);
       }
     },
-    [busy, history, horizon, toast],
+    [busy, history, horizon, toast, activeRoute, navigation],
   );
 
   const newChat = useCallback(() => {
     setMessages([]);
-    setLlmStatus(null);
+
     setInput("");
   }, []);
 
@@ -141,19 +139,6 @@ export function AIAssistant() {
             </button>
           ))}
         </div>
-        {llmStatus && (
-          <span
-            className={`ml-1 px-2 py-1 text-[10px] rounded-md border ${
-              llmStatus.configured
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 bg-slate-50 text-navy-400"
-            }`}
-          >
-            {llmStatus.configured
-              ? `LLM: ${llmStatus.provider}${llmStatus.model ? ` / ${llmStatus.model}` : ""}`
-              : "No LLM configured — template mode"}
-          </span>
-        )}
       </div>
 
       <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-card flex flex-col min-h-[480px]">

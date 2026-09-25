@@ -29,9 +29,6 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from database.database import init_db
-from services.seeding import seed_all
-from app.config import load_navigation_config
-from services.route_engine import warm_route_data
 
 from api import analytics, assistant, datasets, health, icebergs, models, routes, sea_ice, vessels
 from app.routes import config_routes, navigation_routes, vessel_routes
@@ -43,20 +40,13 @@ logging.basicConfig(
 logger = logging.getLogger("dss.api")
 
 
-def _run_startup() -> None:
-    """Idempotent bootstrap: schema + data/model-metric seeding."""
-    init_db()
-    seed_all()
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logger.info("Starting %s v%s (real_data_mode=%s)", settings.APP_NAME, settings.APP_VERSION, settings.data_mode_real)
     try:
-        _run_startup()
-        warm_route_data(load_navigation_config())
-    except Exception as exc:  # pragma: no cover - startup must survive missing artifacts
-        logger.exception("Startup failed to seed resources: %s", exc)
+        init_db()
+    except Exception as exc:  # pragma: no cover - startup should remain resilient
+        logger.exception("Startup DB init failed: %s", exc)
     yield
     logger.info("Shutting down %s", settings.APP_NAME)
 

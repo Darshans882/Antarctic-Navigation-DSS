@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antarctic DSS - Iceberg Avoidance Navigation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+      user-select: none;
+      background-color: #030812;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .glass-panel {
+      background: rgba(6, 17, 34, 0.88);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.75), 0 0 20px rgba(14, 165, 233, 0.12);
+    }
+    .radar-sweep-anim {
+      animation: sweep 4s linear infinite;
+      transform-origin: center;
+    }
+    @keyframes sweep {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .pulse-danger {
+      animation: alert-glow 1.5s ease-in-out infinite alternate;
+    }
+    @keyframes alert-glow {
+      0% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.3); }
+      100% { box-shadow: 0 0 22px rgba(16, 185, 129, 0.75); }
+    }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.35); border-radius: 4px; }
+  </style>
+</head>
+<body class="w-screen h-screen text-slate-100 relative overflow-hidden bg-slate-950">
+
+  <div id="canvas-container" class="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing z-0"></div>
+
+  <header class="absolute top-4 right-4 flex justify-end items-center pointer-events-none z-10">
+    <div class="flex items-center space-x-3 pointer-events-auto">
+      <div class="glass-panel w-12 h-12 rounded-xl flex items-center justify-center relative shadow-xl">
+        <span class="text-[9px] font-bold text-sky-400 absolute top-0.5">N</span>
+        <svg id="compass-needle" class="w-7 h-7 text-red-500 transition-transform duration-75" viewBox="0 0 24 24" fill="currentColor">
+          <polygon points="12,2 15,12 12,9 9,12" />
+          <polygon points="12,22 9,12 12,15 15,12" fill="#94a3b8" />
+        </svg>
+      </div>
+    </div>
+  </header>
+
+  <script>
+    // Global Simulation State
+    const STATE = {
+      progress: 0.05,
+      isPlaying: true,
+      cameraMode: 'chase', // 'chase', 'orbit', 'iceberg'
+      simSpeed: 1.0
+    };
+
+    const container = document.getElementById('canvas-container');
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    const scene = new THREE.Scene();
+
+    // Polar horizon haze fog seamlessly matched to the atmospheric sky dome
+    const horizonHazeColor = new THREE.Color(0x9fc2dc);
+    scene.background = horizonHazeColor;
+    scene.fog = new THREE.FogExp2(0x9fc2dc, 0.0016);
+
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 3800);
+    camera.position.set(0, 45, -120);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.18;
+    container.appendChild(renderer.domElement);
+
+    // Physically-inspired Antarctic Sky Dome with Rayleigh/Mie scattering & drifting cirrus clouds
+    const skyVertexShader = `
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `;
+
+    const skyFragmentShader = `
+      uniform vec3 uSunDir;
+      uniform float uTime;
+      varying vec3 vWorldPos;
+
+      // 2D noise helper for natural polar cirrus cloud streaks
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+
+      float fbm(vec2 p) {
+        float total = 0.0;
+        float amp = 0.52;
+        mat2 rot = mat2(0.8, -0.6, 0.6, 0.8);
+        for(int i = 0; i < 4; i++) {
+          total += noise(p) * amp;
+          p = rot * p * 2.05;
+          amp *= 0.48;
+        }
+        return total;
+      }
+
+      void main() {
+        vec3 dir = normalize(vWorldPos);
+        vec3 sunDir = normalize(uSunDir);
+
+        // Elevation angle (0 = horizon, 1 = zenith)
+        float h = max(dir.y, 0.0);
+
+        // Realistic polar atmospheric gradient:
+        // Deep Antarctic zenith azure -> crisp mid-sky cerulean -> pale icy horizon haze
+        vec3 zenithColor = vec3(0.09, 0.32, 0.68);
+        vec3 midSkyColor = vec3(0.28, 0.58, 0.86);
+        vec3 horizonColor = vec3(0.72, 0.85, 0.95);
+        vec3 seaMeltColor = vec3(0.60, 0.76, 0.89);
+
+        // Blend atmospheric strata
+        vec3 sky = mix(horizonColor, midSkyColor, pow(h, 0.55));
+        sky = mix(sky, zenithColor, pow(h, 1.8));
+
+        // Soften lower boundary right below the horizon to melt into sea level
+        if (dir.y < 0.0) {
+          sky = mix(horizonColor, seaMeltColor, min(-dir.y * 12.0, 1.0));
+        }
+
+        // Low Antarctic Sun & Atmospheric Halo / Mie scattering
+        float cosTheta = max(dot(dir, sunDir), 0.0);
+
+        // Sharp golden-white solar disc
+        float sunDisc = smoothstep(0.9992, 0.9998, cosTheta) * 6.5;
+
+        // Wide warm atmospheric sun glare & corona halo
+        float sunGlow = pow(cosTheta, 6.0) * 0.45 + pow(cosTheta, 28.0) * 0.85;
+        vec3 sunLightColor = vec3(1.0, 0.96, 0.88);
+        vec3 haloColor = vec3(0.96, 0.89, 0.78);
+
+        sky += sunLightColor * sunDisc + haloColor * sunGlow;
+
+        // High-altitude wispy polar ice-crystal cirrus cloud layers
+        if (dir.y > 0.02) {
+          vec2 cloudUV = dir.xz / (dir.y + 0.18);
+          // Slow Antarctic wind drift
+          vec2 wind = vec2(uTime * 0.008, uTime * 0.003);
+          float clouds = fbm(cloudUV * 1.35 + wind);
+          clouds = smoothstep(0.42, 0.78, clouds);
+
+          // Sunlight transmission through thin ice clouds
+          vec3 cloudTone = mix(vec3(0.92, 0.96, 1.0), vec3(1.0, 0.98, 0.92), pow(cosTheta, 3.0) * 0.65);
+          float cloudMask = clouds * smoothstep(0.02, 0.28, dir.y) * 0.42;
+
+          sky = mix(sky, cloudTone, cloudMask);
+        }
+
+        gl_FragColor = vec4(sky, 1.0);
+      }
+    `;
+
+    const sunPosition = new THREE.Vector3(140, 110, 95);
+    const skyGeo = new THREE.SphereGeometry(2700, 64, 48);
+    const skyUniforms = {
+      uSunDir: { value: sunPosition.clone().normalize() },
+      uTime: { value: 0.0 }
+    };
+
+    const skyMat = new THREE.ShaderMaterial({
+      vertexShader: skyVertexShader,
+      fragmentShader: skyFragmentShader,
+      uniforms: skyUniforms,
+      side: THREE.BackSide,
+      depthWrite: false
+    });
+
+    const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(skyMesh);
+
+    // Polar sky illumination calibrated to match the realistic atmosphere
+    const hemiLight = new THREE.HemisphereLight(0xdcf0ff, 0x163654, 1.25);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfffaec, 1.95);
+    dirLight.position.copy(sunPosition);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 10;
+    dirLight.shadow.camera.far = 700;
+    const d = 180;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x9bd8f8, 0.55);
+    fillLight.position.set(-120, 60, -90);
+    scene.add(fillLight);
+
+    // Calm, Glassy Antarctic Ocean (Flat surface with deep polar gradient & specular glint, no waves)
+    const oceanVertexShader = `
+      varying vec3 vWorldPos;
+      varying vec3 vViewPos;
+
+      void main() {
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = -mvPosition.xyz;
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `;
+
+    const oceanFragmentShader = `
+      uniform vec3 uSunDir;
+      uniform vec3 uSunColor;
+      uniform vec3 uDeepWater;
+      uniform vec3 uSkyColor;
+
+      varying vec3 vWorldPos;
+      varying vec3 vViewPos;
+
+      void main() {
+        vec3 normal = vec3(0.0, 1.0, 0.0);
+        vec3 viewDir = normalize(vViewPos);
+        vec3 sunDir = normalize(uSunDir);
+
+        // Fresnel effect for glassy polar water
+        float NdotV = max(dot(normal, viewDir), 0.0);
+        float fresnel = 0.04 + (1.0 - 0.04) * pow(1.0 - NdotV, 5.0);
+
+        // Sharp sun specular reflection
+        vec3 halfDir = normalize(sunDir + viewDir);
+        float specFactor = pow(max(dot(normal, halfDir), 0.0), 220.0);
+        vec3 specular = uSunColor * specFactor * 1.5;
+
+        // Base glassy polar water color blended with sky reflection
+        vec3 finalColor = mix(uDeepWater, uSkyColor, fresnel * 0.65) + specular;
+
+        gl_FragColor = vec4(finalColor, 0.96);
+      }
+    `;
+
+    const oceanGeo = new THREE.PlaneGeometry(3000, 3000);
+    oceanGeo.rotateX(-Math.PI / 2);
+
+    const oceanUniforms = {
+      uSunDir: { value: sunPosition.clone().normalize() },
+      uSunColor: { value: new THREE.Color(0xfff6e8) },
+      uDeepWater: { value: new THREE.Color(0x061e38) },
+      uSkyColor: { value: new THREE.Color(0x7fb6dc) }
+    };
+
+    const oceanMat = new THREE.ShaderMaterial({
+      vertexShader: oceanVertexShader,
+      fragmentShader: oceanFragmentShader,
+      uniforms: oceanUniforms,
+      transparent: true,
+      side: THREE.DoubleSide
+    });
+
+    const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
+    oceanMesh.position.y = 0;
+    oceanMesh.receiveShadow = true;
+    scene.add(oceanMesh);
+
+    // Route points with significantly increased standoff clearance from the iceberg
+    const routePoints = [
+      new THREE.Vector3(-180, 0.6, -320),
+      new THREE.Vector3(-115, 0.6, -190),
+      new THREE.Vector3(-65, 0.6, -75),
+      new THREE.Vector3(-46, 0.6, 36),     // Substantially expanded standoff apex (>70 units / ~30 km from iceberg center)
+      new THREE.Vector3(12, 0.6, 160),
+      new THREE.Vector3(105, 0.6, 280),
+      new THREE.Vector3(210, 0.6, 410)
+    ];
+
+    const singleGreenCurve = new THREE.CatmullRomCurve3(routePoints, false, 'centripetal', 0.5);
+
+    // Build Single Continuous Green Glowing Ribbon
+    const curveSamples = singleGreenCurve.getPoints(280);
+    const ribbonGeo = new THREE.BufferGeometry();
+    const ribbonPositions = [];
+    const ribbonUvs = [];
+    const ribbonHalfWidth = 2.4;
+
+    for (let i = 0; i < curveSamples.length; i++) {
+      const p = curveSamples[i];
+      const t = singleGreenCurve.getTangentAt(i / (curveSamples.length - 1)).normalize();
+      const normal = new THREE.Vector3(-t.z, 0, t.x).normalize();
+
+      const left = p.clone().add(normal.clone().multiplyScalar(ribbonHalfWidth));
+      const right = p.clone().add(normal.clone().multiplyScalar(-ribbonHalfWidth));
+
+      ribbonPositions.push(left.x, 0.45, left.z);
+      ribbonPositions.push(right.x, 0.45, right.z);
+
+      const u = i / (curveSamples.length - 1);
+      ribbonUvs.push(0, u);
+      ribbonUvs.push(1, u);
+    }
+
+    const ribbonIndices = [];
+    for (let i = 0; i < curveSamples.length - 1; i++) {
+      const tl = i * 2;
+      const tr = i * 2 + 1;
+      const bl = (i + 1) * 2;
+      const br = (i + 1) * 2 + 1;
+      ribbonIndices.push(tl, tr, bl);
+      ribbonIndices.push(tr, br, bl);
+    }
+
+    ribbonGeo.setAttribute('position', new THREE.Float32BufferAttribute(ribbonPositions, 3));
+    ribbonGeo.setAttribute('uv', new THREE.Float32BufferAttribute(ribbonUvs, 2));
+    ribbonGeo.setIndex(ribbonIndices);
+
+    const ribbonMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      transparent: true,
+      opacity: 0.78,
+      side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    const routeRibbon = new THREE.Mesh(ribbonGeo, ribbonMat);
+    scene.add(routeRibbon);
+
+    // High-Intensity Core Line along Green Route
+    const coreLineGeo = new THREE.BufferGeometry().setFromPoints(curveSamples);
+    const coreLineMat = new THREE.LineBasicMaterial({
+      color: 0x6ee7b7,
+      linewidth: 3,
+      depthWrite: false
+    });
+    const coreLine = new THREE.Line(coreLineGeo, coreLineMat);
+    coreLine.position.y = 0.55;
+    scene.add(coreLine);
+
+    const shipGroup = new THREE.Group();
+    scene.add(shipGroup);
+
+    function createPolarVessel() {
+      const boat = new THREE.Group();
+
+      // Materials calibrated to match the illustrated research vessel
+      const redKeelMat = new THREE.MeshStandardMaterial({ color: 0xad2e2e, roughness: 0.35, metalness: 0.15, side: THREE.DoubleSide });
+      const blueHullMat = new THREE.MeshStandardMaterial({ color: 0x2e567e, roughness: 0.3, metalness: 0.25, side: THREE.DoubleSide });
+      const whiteDeckhouseMat = new THREE.MeshStandardMaterial({ color: 0xf3f6f9, roughness: 0.25, metalness: 0.08 });
+      const bridgeOrangeMat = new THREE.MeshStandardMaterial({ color: 0xdb5230, roughness: 0.32, metalness: 0.1 });
+      const buffMastMat = new THREE.MeshStandardMaterial({ color: 0xd8a554, roughness: 0.38, metalness: 0.2 });
+      const darkTrimMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.45, metalness: 0.6 });
+      const glassMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.08, metalness: 0.9, emissive: 0x0284c7, emissiveIntensity: 0.45 });
+      const lifeOrangeMat = new THREE.MeshStandardMaterial({ color: 0xe65100, roughness: 0.35 });
+      const deckWoodMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.7, side: THREE.DoubleSide });
+      const bronzePropMat = new THREE.MeshStandardMaterial({ color: 0xb48238, roughness: 0.25, metalness: 0.85 });
+
+      // ---------------------------------------------------------
+      // 1. STREAMLINED HULL WITH GENUINE RAKED STEM & FLARED PROW
+      // ---------------------------------------------------------
+      // Station coordinates defining realistic naval architecture:
+      // Transom stern -> midbody -> flared bow -> sharp stem head
+      const stations = [
+        { z: -10.5, wDeck: 2.30, yDeck: 2.85, wWl: 2.10, yWl: 1.20, wKeel: 1.65, yKeel: 0.35 },
+        { z: -8.0,  wDeck: 2.65, yDeck: 2.80, wWl: 2.45, yWl: 1.20, wKeel: 1.95, yKeel: 0.30 },
+        { z: -4.0,  wDeck: 2.70, yDeck: 2.80, wWl: 2.60, yWl: 1.20, wKeel: 2.05, yKeel: 0.25 },
+        { z:  0.0,  wDeck: 2.70, yDeck: 2.80, wWl: 2.60, yWl: 1.20, wKeel: 2.05, yKeel: 0.25 },
+        { z:  4.5,  wDeck: 2.70, yDeck: 2.80, wWl: 2.58, yWl: 1.20, wKeel: 2.00, yKeel: 0.25 },
+        { z:  8.0,  wDeck: 2.60, yDeck: 2.85, wWl: 2.35, yWl: 1.20, wKeel: 1.75, yKeel: 0.28 },
+        { z: 10.5,  wDeck: 2.35, yDeck: 3.00, wWl: 1.85, yWl: 1.20, wKeel: 1.25, yKeel: 0.32 },
+        { z: 12.2,  wDeck: 1.65, yDeck: 3.20, wWl: 1.05, yWl: 1.20, wKeel: 0.60, yKeel: 0.38 },
+        { z: 13.5,  wDeck: 0.08, yDeck: 3.45, wWl: 0.06, yWl: 1.20, wKeel: 0.05, yKeel: 0.45 }
+      ];
+
+      const numStations = stations.length;
+
+      // Function to build lofted hull surface meshes (Upper Blue Hull & Lower Red Keel)
+      function buildLoftedBand(topKeyW, topKeyY, botKeyW, botKeyY, material) {
+        const geo = new THREE.BufferGeometry();
+        const positions = [];
+        const indices = [];
+
+        for (let i = 0; i < numStations; i++) {
+          const st = stations[i];
+          const wT = st[topKeyW];
+          const yT = st[topKeyY];
+          const wB = st[botKeyW];
+          const yB = st[botKeyY];
+          const z  = st.z;
+
+          // 4 vertices per station ring: [Starboard Top, Starboard Bot, Port Bot, Port Top]
+          positions.push( wT, yT, z); // 4*i + 0
+          positions.push( wB, yB, z); // 4*i + 1
+          positions.push(-wB, yB, z); // 4*i + 2
+          positions.push(-wT, yT, z); // 4*i + 3
+        }
+
+        for (let i = 0; i < numStations - 1; i++) {
+          const c = i * 4;
+          const n = (i + 1) * 4;
+
+          // Starboard flank
+          indices.push(c + 0, n + 0, n + 1);
+          indices.push(c + 0, n + 1, c + 1);
+
+          // Port flank
+          indices.push(c + 3, c + 2, n + 2);
+          indices.push(c + 3, n + 2, n + 3);
+        }
+
+        // Flat Transom Stern plate at z = stations[0].z
+        indices.push(0, 1, 2);
+        indices.push(0, 2, 3);
+
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        return mesh;
+      }
+
+      // Upper Topsides Hull (Slate Blue)
+      const blueTopsides = buildLoftedBand('wDeck', 'yDeck', 'wWl', 'yWl', blueHullMat);
+      boat.add(blueTopsides);
+
+      // Lower Boottopping Keel (Terracotta Red)
+      const redUnderbody = buildLoftedBand('wWl', 'yWl', 'wKeel', 'yKeel', redKeelMat);
+      boat.add(redUnderbody);
+
+      // Keel Bottom Sole Plate (Flat Red underbody closing bottom)
+      const keelSoleGeo = new THREE.BufferGeometry();
+      const solePositions = [];
+      const soleIndices = [];
+      for (let i = 0; i < numStations; i++) {
+        const st = stations[i];
+        solePositions.push( st.wKeel, st.yKeel, st.z);
+        solePositions.push(-st.wKeel, st.yKeel, st.z);
+      }
+      for (let i = 0; i < numStations - 1; i++) {
+        const c = i * 2;
+        const n = (i + 1) * 2;
+        soleIndices.push(c + 0, n + 0, n + 1);
+        soleIndices.push(c + 0, n + 1, c + 1);
+      }
+      keelSoleGeo.setAttribute('position', new THREE.Float32BufferAttribute(solePositions, 3));
+      keelSoleGeo.setIndex(soleIndices);
+      keelSoleGeo.computeVertexNormals();
+      const keelSole = new THREE.Mesh(keelSoleGeo, redKeelMat);
+      boat.add(keelSole);
+
+      // Weather Deck (Continuous smooth wood/composite surface capping the hull)
+      const deckGeo = new THREE.BufferGeometry();
+      const deckPositions = [];
+      const deckIndices = [];
+      for (let i = 0; i < numStations; i++) {
+        const st = stations[i];
+        deckPositions.push( st.wDeck, st.yDeck, st.z);
+        deckPositions.push(-st.wDeck, st.yDeck, st.z);
+      }
+      for (let i = 0; i < numStations - 1; i++) {
+        const c = i * 2;
+        const n = (i + 1) * 2;
+        deckIndices.push(c + 0, c + 1, n + 1);
+        deckIndices.push(c + 0, n + 1, n + 0);
+      }
+      deckGeo.setAttribute('position', new THREE.Float32BufferAttribute(deckPositions, 3));
+      deckGeo.setIndex(deckIndices);
+      deckGeo.computeVertexNormals();
+      const mainDeck = new THREE.Mesh(deckGeo, deckWoodMat);
+      mainDeck.receiveShadow = true;
+      boat.add(mainDeck);
+
+      // Forecastle Protective Bulwark Crest (Raised side rim along the front bow)
+      const bulwarkMat = new THREE.MeshStandardMaterial({ color: 0x2e567e, roughness: 0.35 });
+      const bulwarkL = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.42, 4.2), bulwarkMat);
+      bulwarkL.position.set(-1.4, 3.25, 11.2);
+      bulwarkL.rotation.y = -0.32;
+      const bulwarkR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.42, 4.2), bulwarkMat);
+      bulwarkR.position.set(1.4, 3.25, 11.2);
+      bulwarkR.rotation.y = 0.32;
+      boat.add(bulwarkL, bulwarkR);
+
+      // Bulbous Bow (Properly blended rounded bulb at the forward forefoot, under waterline)
+      const bulbGeo = new THREE.SphereGeometry(1.05, 18, 14);
+      bulbGeo.scale(0.85, 0.85, 1.9);
+      const bulbMesh = new THREE.Mesh(bulbGeo, redKeelMat);
+      bulbMesh.position.set(0, 0.72, 12.5);
+      bulbMesh.castShadow = true;
+      boat.add(bulbMesh);
+
+      // Bow Thruster Tunnel Markings (Recessed dark circular tunnels on bulb sides)
+      const thrusterGeo = new THREE.CylinderGeometry(0.24, 0.24, 1.85, 14);
+      thrusterGeo.rotateZ(Math.PI / 2);
+      const thrusterMesh = new THREE.Mesh(thrusterGeo, darkTrimMat);
+      thrusterMesh.position.set(0, 0.72, 11.6);
+      boat.add(thrusterMesh);
+
+      // Stern Rudder & Bronze Screw
+      const rudderGeo = new THREE.BoxGeometry(0.16, 1.15, 1.1);
+      const rudderMesh = new THREE.Mesh(rudderGeo, redKeelMat);
+      rudderMesh.position.set(0, 0.65, -10.1);
+      boat.add(rudderMesh);
+
+      const propShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.7, 8), darkTrimMat);
+      propShaft.rotation.x = Math.PI / 2;
+      propShaft.position.set(0, 0.55, -9.6);
+      const propeller = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.08, 4), bronzePropMat);
+      propeller.rotation.x = Math.PI / 2;
+      propeller.position.set(0, 0.55, -9.95);
+      boat.add(propShaft, propeller);
+
+      // Starboard & Port Hawsepipe Pockets with Hanging Anchors
+      const anchorPocketMat = new THREE.MeshStandardMaterial({ color: 0x162235, roughness: 0.6 });
+      const anchorPocketStarboard = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.75, 1.0), anchorPocketMat);
+      anchorPocketStarboard.position.set(1.75, 2.35, 11.0);
+      anchorPocketStarboard.rotation.y = 0.28;
+      const anchorPocketPort = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.75, 1.0), anchorPocketMat);
+      anchorPocketPort.position.set(-1.75, 2.35, 11.0);
+      anchorPocketPort.rotation.y = -0.28;
+      boat.add(anchorPocketStarboard, anchorPocketPort);
+
+      // 3D Metal Anchor in hawse pocket
+      const anchorHookGeo = new THREE.TorusGeometry(0.24, 0.06, 6, 12, Math.PI);
+      anchorHookGeo.rotateX(Math.PI / 2);
+      const anchorHookR = new THREE.Mesh(anchorHookGeo, darkTrimMat);
+      anchorHookR.position.set(1.82, 2.25, 11.0);
+      anchorHookR.rotation.y = 0.28;
+      const anchorHookL = anchorHookR.clone();
+      anchorHookL.position.x = -1.82;
+      anchorHookL.rotation.y = -0.28;
+      boat.add(anchorHookR, anchorHookL);
+
+      // Circular Portholes along slate-blue upper hull
+      for (let z = -2.0; z <= 8.5; z += 1.4) {
+        const portGeo = new THREE.CylinderGeometry(0.13, 0.13, 5.4, 10);
+        portGeo.rotateZ(Math.PI / 2);
+        const porthole = new THREE.Mesh(portGeo, darkTrimMat);
+        porthole.position.set(0, 2.05, z);
+        boat.add(porthole);
+      }
+
+      // ---------------------------------------------------------
+      // 2. TIERED SUPERSTRUCTURE (LABS, BRIDGE & COMMUNICATIONS)
+      // ---------------------------------------------------------
+      // Tier 1 Superstructure (Scientific Labs & Quarters)
+      const tier1Geo = new THREE.BoxGeometry(4.3, 1.35, 12.6);
+      const tier1Mesh = new THREE.Mesh(tier1Geo, whiteDeckhouseMat);
+      tier1Mesh.position.set(0, 3.55, 1.4);
+      tier1Mesh.castShadow = true;
+      boat.add(tier1Mesh);
+
+      // Tier 1 Promenade Gallery Rectangular Windows
+      for (let z = -3.8; z <= 6.2; z += 1.4) {
+        const winGeo = new THREE.BoxGeometry(0.12, 0.45, 0.75);
+        const winL = new THREE.Mesh(winGeo, glassMat);
+        winL.position.set(-2.18, 3.65, z);
+        const winR = winL.clone();
+        winR.position.x = 2.18;
+        boat.add(winL, winR);
+      }
+
+      // Tier 2 Superstructure Deck (Officer Cabins & Mess)
+      const tier2Geo = new THREE.BoxGeometry(3.9, 1.25, 9.4);
+      const tier2Mesh = new THREE.Mesh(tier2Geo, whiteDeckhouseMat);
+      tier2Mesh.position.set(0, 4.85, 2.5);
+      tier2Mesh.castShadow = true;
+      boat.add(tier2Mesh);
+
+      for (let z = -1.2; z <= 5.8; z += 1.4) {
+        const winGeo = new THREE.BoxGeometry(0.12, 0.4, 0.65);
+        const winL = new THREE.Mesh(winGeo, glassMat);
+        winL.position.set(-1.98, 4.95, z);
+        const winR = winL.clone();
+        winR.position.x = 1.98;
+        boat.add(winL, winR);
+      }
+
+      // Tier 3 Navigation Wheelhouse Bridge
+      const bridgeCoreGeo = new THREE.BoxGeometry(3.7, 1.15, 5.2);
+      const bridgeCore = new THREE.Mesh(bridgeCoreGeo, whiteDeckhouseMat);
+      bridgeCore.position.set(0, 6.0, 3.8);
+      bridgeCore.castShadow = true;
+      boat.add(bridgeCore);
+
+      // Extended Cantilevered Bridge Wings
+      const bridgeWingsGeo = new THREE.BoxGeometry(5.9, 0.85, 2.8);
+      const bridgeWings = new THREE.Mesh(bridgeWingsGeo, whiteDeckhouseMat);
+      bridgeWings.position.set(0, 6.1, 4.5);
+      bridgeWings.castShadow = true;
+      boat.add(bridgeWings);
+
+      // Slanted Forward Panoramic Glazing
+      const bridgeGlassGeo = new THREE.BoxGeometry(5.75, 0.52, 1.2);
+      const frontGlass = new THREE.Mesh(bridgeGlassGeo, glassMat);
+      frontGlass.position.set(0, 6.25, 5.2);
+      boat.add(frontGlass);
+
+      // Signature Burnt-Orange Sun Visor / Overhanging Roof Brow
+      const visorGeo = new THREE.BoxGeometry(6.05, 0.28, 3.4);
+      const bridgeVisor = new THREE.Mesh(visorGeo, bridgeOrangeMat);
+      bridgeVisor.position.set(0, 6.65, 4.6);
+      bridgeVisor.castShadow = true;
+      boat.add(bridgeVisor);
+
+      // Tall Ochre/Buff Radar Tower & Lattice Mast
+      const mastPillarGeo = new THREE.CylinderGeometry(0.12, 0.22, 4.4, 8);
+      const mastPillar = new THREE.Mesh(mastPillarGeo, buffMastMat);
+      mastPillar.position.set(0, 8.8, 3.6);
+      boat.add(mastPillar);
+
+      // Radar Platforms & Yardarms
+      const yard1 = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.12, 0.2), buffMastMat);
+      yard1.position.set(0, 8.3, 3.6);
+      const yard2 = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.1, 0.16), buffMastMat);
+      yard2.position.set(0, 9.7, 3.6);
+      boat.add(yard1, yard2);
+
+      // Rotating S-Band Radar Scanner
+      const scannerGeo = new THREE.BoxGeometry(1.85, 0.16, 0.26);
+      const radarScanner = new THREE.Mesh(scannerGeo, buffMastMat);
+      radarScanner.position.set(0, 10.4, 3.6);
+      boat.add(radarScanner);
+
+      // Twin White Satellite Dome Radomes
+      const domeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+      const satDomeL = new THREE.Mesh(new THREE.SphereGeometry(0.48, 16, 14), domeMat);
+      satDomeL.position.set(-1.15, 7.2, 2.4);
+      const satDomeR = satDomeL.clone();
+      satDomeR.position.x = 1.15;
+      boat.add(satDomeL, satDomeR);
+
+      // Forward Bow Jackstaff Mast
+      const bowMast = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 2.4, 6), darkTrimMat);
+      bowMast.position.set(0, 4.6, 12.4);
+      bowMast.rotation.x = -0.15;
+      boat.add(bowMast);
+
+      // Angled Buff/Ochre Funnel with Logo Band
+      const funnelGroup = new THREE.Group();
+      funnelGroup.position.set(0, 6.2, -0.6);
+      funnelGroup.rotation.x = -0.16;
+
+      const funnelBodyGeo = new THREE.BoxGeometry(1.7, 2.4, 2.8);
+      const funnelBody = new THREE.Mesh(funnelBodyGeo, buffMastMat);
+      funnelBody.castShadow = true;
+      funnelGroup.add(funnelBody);
+
+      const funnelCap = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.35, 2.9), darkTrimMat);
+      funnelCap.position.y = 1.3;
+      funnelGroup.add(funnelCap);
+
+      const flueL = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.9, 8), darkTrimMat);
+      flueL.position.set(-0.45, 1.8, -0.2);
+      const flueR = flueL.clone();
+      flueR.position.x = 0.45;
+      funnelGroup.add(flueL, flueR);
+
+      const logoPlateMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+      const logoPlate = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.65, 1.4), logoPlateMat);
+      logoPlate.position.set(0, 0.1, 0);
+      funnelGroup.add(logoPlate);
+      boat.add(funnelGroup);
+
+      // Enclosed Bright Orange Polar Lifeboats in White Davits
+      function createLifeboatDavit(isPort) {
+        const lbGroup = new THREE.Group();
+        const sideMult = isPort ? -1 : 1;
+
+        const capsuleGeo = new THREE.CylinderGeometry(0.42, 0.42, 2.6, 8);
+        capsuleGeo.rotateX(Math.PI / 2);
+        capsuleGeo.scale(0.9, 1.0, 1.0);
+        const lbCapsule = new THREE.Mesh(capsuleGeo, lifeOrangeMat);
+        lbCapsule.position.set(sideMult * 2.25, 4.3, 0.4);
+        lbCapsule.castShadow = true;
+        lbGroup.add(lbCapsule);
+
+        const davitArm1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.2, 0.12), whiteDeckhouseMat);
+        davitArm1.position.set(sideMult * 2.05, 4.5, -0.6);
+        davitArm1.rotation.z = sideMult * 0.2;
+        const davitArm2 = davitArm1.clone();
+        davitArm2.position.z = 1.4;
+        lbGroup.add(davitArm1, davitArm2);
+
+        return lbGroup;
+      }
+      boat.add(createLifeboatDavit(true), createLifeboatDavit(false));
+
+      // Aft Working Deck Heavy Oceanographic A-Frame Gantry Crane
+      const aFrameGroup = new THREE.Group();
+      aFrameGroup.position.set(0, 3.4, -8.2);
+
+      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.4, 0.24), buffMastMat);
+      legL.position.set(-1.85, 1.1, 0);
+      legL.rotation.z = -0.18;
+      const legR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.4, 0.24), buffMastMat);
+      legR.position.set(1.85, 1.1, 0);
+      legR.rotation.z = 0.18;
+      const topBeam = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.24, 0.28), buffMastMat);
+      topBeam.position.set(0, 2.2, 0);
+      aFrameGroup.add(legL, legR, topBeam);
+
+      const winchGeo = new THREE.CylinderGeometry(0.45, 0.45, 1.6, 12);
+      winchGeo.rotateZ(Math.PI / 2);
+      const winchMesh = new THREE.Mesh(winchGeo, darkTrimMat);
+      winchMesh.position.set(0, 0.4, 2.2);
+      aFrameGroup.add(winchMesh);
+      boat.add(aFrameGroup);
+
+      // Navigation Lights & Forward Searchlight
+      const portLight = new THREE.PointLight(0xef4444, 1.5, 16);
+      portLight.position.set(-2.95, 6.1, 4.5);
+      const stbdLight = new THREE.PointLight(0x22c55e, 1.5, 16);
+      stbdLight.position.set(2.95, 6.1, 4.5);
+      boat.add(portLight, stbdLight);
+
+      const searchlight = new THREE.PointLight(0xffffff, 2.2, 40);
+      searchlight.position.set(0, 6.7, 5.8);
+      boat.add(searchlight);
+
+      // Dynamic Wake Plane
+      const wakeGeo = new THREE.PlaneGeometry(7.2, 22);
+      const wakeMat = new THREE.MeshBasicMaterial({
+        color: 0x67e8f9,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false
+      });
+      const wakeMesh = new THREE.Mesh(wakeGeo, wakeMat);
+      wakeMesh.rotation.x = -Math.PI / 2;
+      wakeMesh.position.set(0, 0.15, -15);
+      boat.add(wakeMesh);
+
+      boat.scale.set(1.15, 1.15, 1.15);
+      return { boat, radarScanner, wakeMesh };
+    }
+
+    const { boat: boatModel, radarScanner, wakeMesh } = createPolarVessel();
+    shipGroup.add(boatModel);
+
+    // Materials configured to match the exact vector artwork style (pure white snow tops & pastel blue cliff sides)
+    const topSnowMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.22,
+      metalness: 0.0,
+      flatShading: true
+    });
+
+    const cliffIceMat = new THREE.MeshStandardMaterial({
+      color: 0x6ca2d4,
+      roughness: 0.35,
+      metalness: 0.02,
+      flatShading: true
+    });
+
+    const submergedKeelMat = new THREE.MeshStandardMaterial({
+      color: 0x22d3ee,
+      roughness: 0.3,
+      flatShading: true,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false
+    });
+
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xef4444,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.55
+    });
+
+    // Helper to sculpt crisp, low-poly faceted iceberg mountains matching the reference image
+    function createFacetedIcebergMesh(radiusTop, radiusBot, height, radialSegs, heightSegs, peakDisplacement) {
+      let geo = new THREE.CylinderGeometry(radiusTop, radiusBot, height, radialSegs, heightSegs);
+      geo = geo.toNonIndexed();
+
+      const pos = geo.attributes.position;
+      const v = new THREE.Vector3();
+
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        const hNorm = (v.y + height * 0.5) / height;
+
+        if (hNorm > 0.62) {
+          const topFactor = (hNorm - 0.62) / 0.38;
+          v.x += peakDisplacement.x * topFactor;
+          v.z += peakDisplacement.z * topFactor;
+          v.y += peakDisplacement.y * topFactor;
+        }
+
+        const angle = Math.atan2(v.z, v.x);
+        const facetStep = Math.sin(angle * 3.5) * 4.2 * (1.0 - hNorm * 0.4);
+        const radiusPerturb = Math.cos(angle * 2.0 + hNorm * 5.0) * 3.2;
+
+        v.x += (Math.cos(angle) * (facetStep + radiusPerturb));
+        v.z += (Math.sin(angle) * (facetStep + radiusPerturb));
+
+        if (hNorm > 0.2 && hNorm < 0.8) {
+          const notch = Math.sin(angle * 5.0 + v.y * 0.25);
+          if (notch > 0.45) {
+            v.x *= 0.86;
+            v.z *= 0.86;
+          }
+        }
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    // Helper to generate tiered tabular ice blocks matching the background of the reference image
+    function createTabularIceBlock(width, height, depth, roughness) {
+      const group = new THREE.Group();
+
+      let boxGeo = new THREE.BoxGeometry(width, height, depth, 6, 2, 4);
+      boxGeo = boxGeo.toNonIndexed();
+      const pos = boxGeo.attributes.position;
+
+      for (let i = 0; i < pos.count; i++) {
+        let vx = pos.getX(i);
+        let vy = pos.getY(i);
+        let vz = pos.getZ(i);
+
+        if (vy > 0) {
+          vx += Math.sin(vz * 0.08) * roughness;
+          vz += Math.cos(vx * 0.09) * roughness;
+        } else {
+          vx *= 1.08;
+          vz *= 1.08;
+        }
+        pos.setXYZ(i, vx, vy, vz);
+      }
+      boxGeo.computeVertexNormals();
+
+      // Top pure white snow plate
+      let topPlateGeo = new THREE.BoxGeometry(width * 1.01, 0.4, depth * 1.01, 5, 1, 4).toNonIndexed();
+      topPlateGeo.computeVertexNormals();
+      const topPlate = new THREE.Mesh(topPlateGeo, topSnowMat);
+      topPlate.position.y = height * 0.5 + 0.15;
+      topPlate.castShadow = true;
+      group.add(topPlate);
+
+      // Main cliff walls in crisp pastel blue
+      const cliffMesh = new THREE.Mesh(boxGeo, cliffIceMat);
+      cliffMesh.castShadow = true;
+      cliffMesh.receiveShadow = true;
+      group.add(cliffMesh);
+
+      // Submerged turquoise base
+      let subGeo = new THREE.BoxGeometry(width * 1.15, height * 0.6, depth * 1.15, 3, 1, 2).toNonIndexed();
+      subGeo.computeVertexNormals();
+      const subMesh = new THREE.Mesh(subGeo, submergedKeelMat);
+      subMesh.position.y = -height * 0.4;
+      group.add(subMesh);
+
+      return group;
+    }
+
+    // Massive Tiered Tabular Ice Shelves framing the northern and eastern horizons (like the reference illustration)
+    const shelfGroupNorth = new THREE.Group();
+    shelfGroupNorth.position.set(-60, 0, -560);
+
+    const shelf1 = createTabularIceBlock(560, 28, 140, 7.0);
+    shelf1.position.set(0, 14, 0);
+
+    const shelf2 = createTabularIceBlock(480, 22, 110, 6.0);
+    shelf2.position.set(-40, 36, -30);
+
+    const shelf3 = createTabularIceBlock(360, 18, 90, 5.0);
+    shelf3.position.set(20, 52, -50);
+
+    shelfGroupNorth.add(shelf1, shelf2, shelf3);
+    shelfGroupNorth.rotation.y = 0.12;
+    scene.add(shelfGroupNorth);
+
+    // Western tiered tabular cliff system
+    const shelfGroupWest = new THREE.Group();
+    shelfGroupWest.position.set(-480, 0, 80);
+
+    const wShelf1 = createTabularIceBlock(160, 26, 480, 6.5);
+    wShelf1.position.set(0, 13, 0);
+
+    const wShelf2 = createTabularIceBlock(120, 20, 420, 5.5);
+    wShelf2.position.set(-40, 33, -20);
+
+    shelfGroupWest.add(wShelf1, wShelf2);
+    shelfGroupWest.rotation.y = -0.15;
+    scene.add(shelfGroupWest);
+
+    // 1. ICEBERG ALPHA - Iconic Low-Poly Stepped Peak (Directly matching user image)
+    const icebergAlphaPos = new THREE.Vector3(34, 0, 42);
+    const icebergAlphaGroup = new THREE.Group();
+    icebergAlphaGroup.position.copy(icebergAlphaPos);
+
+    const alphaPeakGeo = createFacetedIcebergMesh(1.5, 26, 36, 9, 6, new THREE.Vector3(4.5, 3.0, -3.5));
+    const bergPeakAlpha = new THREE.Mesh(alphaPeakGeo, topSnowMat);
+    bergPeakAlpha.position.y = 15;
+    bergPeakAlpha.castShadow = true;
+    bergPeakAlpha.receiveShadow = true;
+
+    const alphaKeelGeo = createFacetedIcebergMesh(27, 34, 16, 8, 3, new THREE.Vector3(0, 0, 0));
+    const subAlpha = new THREE.Mesh(alphaKeelGeo, submergedKeelMat);
+    subAlpha.position.y = -7.5;
+
+    const safetyRingAlpha = new THREE.Mesh(new THREE.RingGeometry(25, 27, 48), ringMat);
+    safetyRingAlpha.rotation.x = -Math.PI / 2;
+    safetyRingAlpha.position.y = 0.5;
+
+    const beaconLightAlpha = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightAlpha.position.set(0, 34, 0);
+
+    icebergAlphaGroup.add(bergPeakAlpha, subAlpha, safetyRingAlpha, beaconLightAlpha);
+    scene.add(icebergAlphaGroup);
+
+    // 2. ICEBERG BETA - Massive Low-Poly Tabular Platform
+    const icebergBetaPos = new THREE.Vector3(-148, 0, -82);
+    const icebergBetaGroup = new THREE.Group();
+    icebergBetaGroup.position.copy(icebergBetaPos);
+
+    const tabularMeshBeta = createTabularIceBlock(56, 18, 42, 4.5);
+    tabularMeshBeta.position.y = 9;
+
+    const betaRidgeGeo = createFacetedIcebergMesh(1.0, 14, 16, 7, 4, new THREE.Vector3(3, 2, 2));
+    const betaRidge = new THREE.Mesh(betaRidgeGeo, topSnowMat);
+    betaRidge.position.set(-6, 20, 3);
+    betaRidge.castShadow = true;
+
+    const safetyRingBeta = new THREE.Mesh(new THREE.RingGeometry(34, 36, 48), ringMat);
+    safetyRingBeta.rotation.x = -Math.PI / 2;
+    safetyRingBeta.position.y = 0.5;
+
+    const beaconLightBeta = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightBeta.position.set(0, 26, 0);
+
+    icebergBetaGroup.add(tabularMeshBeta, betaRidge, safetyRingBeta, beaconLightBeta);
+    scene.add(icebergBetaGroup);
+
+    // 3. ICEBERG GAMMA - Faceted Twin Spires
+    const icebergGammaPos = new THREE.Vector3(135, 0, 215);
+    const icebergGammaGroup = new THREE.Group();
+    icebergGammaGroup.position.copy(icebergGammaPos);
+
+    const spire1Geo = createFacetedIcebergMesh(1.2, 17, 36, 8, 5, new THREE.Vector3(-3.5, 3.5, 1.5));
+    const spire1 = new THREE.Mesh(spire1Geo, topSnowMat);
+    spire1.position.set(-6, 16, 0);
+    spire1.castShadow = true;
+
+    const spire2Geo = createFacetedIcebergMesh(1.0, 13, 26, 7, 4, new THREE.Vector3(2.5, 2.0, -2.5));
+    const spire2 = new THREE.Mesh(spire2Geo, topSnowMat);
+    spire2.position.set(8, 12, -4);
+    spire2.castShadow = true;
+
+    const subGammaGeo = createFacetedIcebergMesh(24, 32, 16, 7, 3, new THREE.Vector3(0, 0, 0));
+    const submergedGamma = new THREE.Mesh(subGammaGeo, submergedKeelMat);
+    subGammaGeo.computeVertexNormals();
+    submergedGamma.position.y = -7.0;
+
+    const safetyRingGamma = new THREE.Mesh(new THREE.RingGeometry(26, 28, 48), ringMat);
+    safetyRingGamma.rotation.x = -Math.PI / 2;
+    safetyRingGamma.position.y = 0.5;
+
+    const beaconLightGamma = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightGamma.position.set(0, 36, 0);
+
+    icebergGammaGroup.add(spire1, spire2, submergedGamma, safetyRingGamma, beaconLightGamma);
+    scene.add(icebergGammaGroup);
+
+    // 4. ICEBERG DELTA - Tilted Angular Shear Berg
+    const icebergDeltaPos = new THREE.Vector3(115, 0, -170);
+    const icebergDeltaGroup = new THREE.Group();
+    icebergDeltaGroup.position.copy(icebergDeltaPos);
+
+    const deltaGeo = createFacetedIcebergMesh(2.0, 24, 30, 8, 5, new THREE.Vector3(6.0, 2.0, -4.0));
+    const deltaMesh = new THREE.Mesh(deltaGeo, topSnowMat);
+    deltaMesh.position.y = 13;
+    deltaMesh.rotation.z = 0.16;
+    deltaMesh.castShadow = true;
+
+    const subDeltaGeo = createFacetedIcebergMesh(26, 32, 14, 8, 2, new THREE.Vector3(0, 0, 0));
+    const subDelta = new THREE.Mesh(subDeltaGeo, submergedKeelMat);
+    subDelta.position.y = -6.5;
+
+    const safetyRingDelta = new THREE.Mesh(new THREE.RingGeometry(26, 28, 48), ringMat);
+    safetyRingDelta.rotation.x = -Math.PI / 2;
+    safetyRingDelta.position.y = 0.5;
+
+    const beaconLightDelta = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightDelta.position.set(0, 30, 0);
+
+    icebergDeltaGroup.add(deltaMesh, subDelta, safetyRingDelta, beaconLightDelta);
+    scene.add(icebergDeltaGroup);
+
+    // 5. ICEBERG EPSILON - Monolithic Tabular Wedge
+    const icebergEpsilonPos = new THREE.Vector3(-120, 0, 185);
+    const icebergEpsilonGroup = new THREE.Group();
+    icebergEpsilonGroup.position.copy(icebergEpsilonPos);
+
+    const epsilonTab = createTabularIceBlock(48, 16, 36, 4.0);
+    epsilonTab.position.y = 8;
+    epsilonTab.rotation.y = 0.45;
+
+    const epsilonPeak = new THREE.Mesh(createFacetedIcebergMesh(0.8, 12, 14, 6, 3, new THREE.Vector3(-2, 1, 1)), topSnowMat);
+    epsilonPeak.position.set(4, 18, -2);
+    epsilonPeak.castShadow = true;
+
+    const safetyRingEpsilon = new THREE.Mesh(new THREE.RingGeometry(28, 30, 48), ringMat);
+    safetyRingEpsilon.rotation.x = -Math.PI / 2;
+    safetyRingEpsilon.position.y = 0.5;
+
+    const beaconLightEpsilon = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightEpsilon.position.set(0, 24, 0);
+
+    icebergEpsilonGroup.add(epsilonTab, epsilonPeak, safetyRingEpsilon, beaconLightEpsilon);
+    scene.add(icebergEpsilonGroup);
+
+    // 6. ICEBERG ZETA - Broad Stepped Iceberg Complex
+    const icebergZetaPos = new THREE.Vector3(220, 0, 35);
+    const icebergZetaGroup = new THREE.Group();
+    icebergZetaGroup.position.copy(icebergZetaPos);
+
+    const zetaTab = createTabularIceBlock(64, 22, 44, 5.0);
+    zetaTab.position.y = 11;
+    zetaTab.rotation.y = -0.3;
+
+    const safetyRingZeta = new THREE.Mesh(new THREE.RingGeometry(35, 37, 48), ringMat);
+    safetyRingZeta.rotation.x = -Math.PI / 2;
+    safetyRingZeta.position.y = 0.5;
+
+    const beaconLightZeta = new THREE.PointLight(0xef4444, 2.5, 140);
+    beaconLightZeta.position.set(0, 28, 0);
+
+    icebergZetaGroup.add(zetaTab, safetyRingZeta, beaconLightZeta);
+    scene.add(icebergZetaGroup);
+
+    // Obstacle collection for distance checks, radar, and strobe beacons
+    const allIcebergs = [
+      { name: 'Alpha (Faceted Peak)', pos: icebergAlphaPos, beacon: beaconLightAlpha, ring: safetyRingAlpha },
+      { name: 'Beta (Faceted Tabular)', pos: icebergBetaPos, beacon: beaconLightBeta, ring: safetyRingBeta },
+      { name: 'Gamma (Faceted Spires)', pos: icebergGammaPos, beacon: beaconLightGamma, ring: safetyRingGamma },
+      { name: 'Delta (Tilted Shear)', pos: icebergDeltaPos, beacon: beaconLightDelta, ring: safetyRingDelta },
+      { name: 'Epsilon (Monolith Wedge)', pos: icebergEpsilonPos, beacon: beaconLightEpsilon, ring: safetyRingEpsilon },
+      { name: 'Zeta (Broad Stepped Shelf)', pos: icebergZetaPos, beacon: beaconLightZeta, ring: safetyRingZeta }
+    ];
+
+    // Helper to generate a clean, vector-shaded low-poly pack ice floe
+    function createFacetedPackFloe(radius, height, numSides) {
+      const floeGroup = new THREE.Group();
+
+      let floeGeo = new THREE.CylinderGeometry(radius * 0.94, radius, height, numSides, 1);
+      floeGeo = floeGeo.toNonIndexed();
+
+      const fPos = floeGeo.attributes.position;
+      for (let i = 0; i < fPos.count; i++) {
+        let vx = fPos.getX(i);
+        let vy = fPos.getY(i);
+        let vz = fPos.getZ(i);
+
+        const a = Math.atan2(vz, vx);
+        const rVar = 1.0 + Math.sin(a * 3.0) * 0.16;
+        vx *= rVar;
+        vz *= rVar;
+
+        fPos.setXYZ(i, vx, vy, vz);
+      }
+      floeGeo.computeVertexNormals();
+
+      // Side cliff walls (pastel ice blue)
+      const floeSideMesh = new THREE.Mesh(floeGeo, cliffIceMat);
+      floeSideMesh.position.y = height * 0.5 + 0.1;
+      floeSideMesh.receiveShadow = true;
+      floeGroup.add(floeSideMesh);
+
+      // Top pure white snow face
+      let capGeo = new THREE.CylinderGeometry(radius * 0.94, radius * 0.94, 0.15, numSides, 1).toNonIndexed();
+      capGeo.computeVertexNormals();
+      const capMesh = new THREE.Mesh(capGeo, topSnowMat);
+      capMesh.position.y = height + 0.12;
+      capMesh.receiveShadow = true;
+      floeGroup.add(capMesh);
+
+      // Turquoise underwater foot
+      let skirtGeo = new THREE.CylinderGeometry(radius * 1.15, radius * 1.28, height * 0.9, numSides, 1).toNonIndexed();
+      skirtGeo.computeVertexNormals();
+      const skirtMesh = new THREE.Mesh(skirtGeo, submergedKeelMat);
+      skirtMesh.position.y = -height * 0.4;
+      floeGroup.add(skirtMesh);
+
+      return floeGroup;
+    }
+
+    // Spawn 360+ sea ice floes across the polar waters while protecting the green route
+    const routeSampleCheck = singleGreenCurve.getPoints(280);
+    const spawnedFloes = [];
+    const MIN_DISTANCE_BETWEEN_FLOES = 21; // Dense natural pack ice distribution
+    const MIN_DISTANCE_FROM_ROUTE = 48;    // Clean safe corridor around green way
+    const MIN_DISTANCE_FROM_BERGS = 48;    // Safe clearance around the 6 major icebergs
+
+    const TARGET_FLOES = 360;
+    for (let attempts = 0; attempts < 4800 && spawnedFloes.length < TARGET_FLOES; attempts++) {
+      const rx = (Math.random() - 0.5) * 2250;
+      const rz = (Math.random() - 0.5) * 2350;
+      const candidate = new THREE.Vector3(rx, 0, rz);
+
+      // Verify clearance from green navigation route
+      let minRouteDist = 9999;
+      for (let s = 0; s < routeSampleCheck.length; s++) {
+        const d = candidate.distanceTo(routeSampleCheck[s]);
+        if (d < minRouteDist) minRouteDist = d;
+      }
+
+      // Verify clearance from all 6 icebergs
+      let closeToAnyBerg = false;
+      for (let b = 0; b < allIcebergs.length; b++) {
+        if (candidate.distanceTo(allIcebergs[b].pos) < MIN_DISTANCE_FROM_BERGS) {
+          closeToAnyBerg = true;
+          break;
+        }
+      }
+
+      // Verify mutual clearance from other floes
+      let tooCloseToOtherFloe = false;
+      for (let j = 0; j < spawnedFloes.length; j++) {
+        if (candidate.distanceTo(spawnedFloes[j]) < MIN_DISTANCE_BETWEEN_FLOES) {
+          tooCloseToOtherFloe = true;
+          break;
+        }
+      }
+
+      if (minRouteDist > MIN_DISTANCE_FROM_ROUTE && !closeToAnyBerg && !tooCloseToOtherFloe) {
+        spawnedFloes.push(candidate);
+
+        // Mix of flat pack floes and faceted chunk icebergs matching the illustration
+        const floeType = Math.random();
+
+        if (floeType < 0.65) {
+          // Standard flat floe with white top and blue edges
+          const baseRadius = 4.5 + Math.random() * 9.5;
+          const slabHeight = 0.7 + Math.random() * 1.1;
+          const sides = Math.floor(5 + Math.random() * 5);
+
+          const floeCluster = createFacetedPackFloe(baseRadius, slabHeight, sides);
+          floeCluster.position.set(rx, 0, rz);
+          floeCluster.rotation.y = Math.random() * Math.PI * 2;
+
+          // Accompanying small drift chunks
+          if (Math.random() > 0.4) {
+            const numBits = Math.floor(1 + Math.random() * 3);
+            for (let k = 0; k < numBits; k++) {
+              const angle = Math.random() * Math.PI * 2;
+              const dist = baseRadius * 1.35 + Math.random() * 4.0;
+              const bitGeo = createFacetedIcebergMesh(0.4, 2.2, 3.2, 5, 2, new THREE.Vector3(0.4, 0.4, 0));
+              const bitMesh = new THREE.Mesh(bitGeo, topSnowMat);
+              bitMesh.position.set(Math.cos(angle) * dist, 0.5, Math.sin(angle) * dist);
+              bitMesh.rotation.y = Math.random() * Math.PI;
+              floeCluster.add(bitMesh);
+            }
+          }
+          scene.add(floeCluster);
+
+        } else if (floeType < 0.85) {
+          // Medium tabular block iceberg (like the floating white slabs in the middle ground of the image)
+          const slabW = 12 + Math.random() * 14;
+          const slabH = 3.5 + Math.random() * 4.5;
+          const slabD = 10 + Math.random() * 12;
+          const miniTabular = createTabularIceBlock(slabW, slabH, slabD, 2.0);
+          miniTabular.position.set(rx, slabH * 0.45, rz);
+          miniTabular.rotation.y = Math.random() * Math.PI * 2;
+          scene.add(miniTabular);
+
+        } else {
+          // Pointed craggy chunk iceberg (like the foreground peak in the reference illustration)
+          const peakH = 8.0 + Math.random() * 10.0;
+          const peakR = 6.0 + Math.random() * 7.0;
+          const peakGeo = createFacetedIcebergMesh(0.8, peakR, peakH, 7, 3, new THREE.Vector3(1.5, 1.2, -1.0));
+          const peakMesh = new THREE.Mesh(peakGeo, topSnowMat);
+          peakMesh.position.set(rx, peakH * 0.45, rz);
+          peakMesh.rotation.y = Math.random() * Math.PI * 2;
+          peakMesh.castShadow = true;
+
+          // Subsurface foot
+          const subGeo = createFacetedIcebergMesh(peakR * 1.15, peakR * 1.35, 5, 6, 2, new THREE.Vector3(0, 0, 0));
+          const subMesh = new THREE.Mesh(subGeo, submergedKeelMat);
+          subMesh.position.y = -2.5;
+          peakMesh.add(subMesh);
+
+          scene.add(peakMesh);
+        }
+      }
+    }
+
+    // Dynamic Multi-Target Laser Rangefinder Lines & Reticles for ALL detected icebergs
+    const bergTrackers = allIcebergs.map((berg, idx) => {
+      const lineGeo = new THREE.BufferGeometry();
+      const lineMat = new THREE.LineDashedMaterial({
+        color: 0x38bdf8,
+        dashSize: 3.2,
+        gapSize: 2.0,
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false
+      });
+      const line = new THREE.Line(lineGeo, lineMat);
+      scene.add(line);
+
+      const reticleMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.8
+      });
+      const reticle = new THREE.Mesh(new THREE.OctahedronGeometry(2.2, 0), reticleMat);
+      scene.add(reticle);
+
+      // Expanding radar beacon ping ring at water level
+      const pingRingMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.5
+      });
+      const pingRing = new THREE.Mesh(new THREE.RingGeometry(2.0, 3.4, 24), pingRingMat);
+      pingRing.rotation.x = -Math.PI / 2;
+      pingRing.position.set(berg.pos.x, 0.6, berg.pos.z);
+      scene.add(pingRing);
+
+      return { line, lineMat, reticle, reticleMat, pingRing, pingRingMat, berg };
+    });
+
+    const compassNeedle = document.getElementById('compass-needle');
+
+    let isDragging = false;
+    let prevMouseX = 0;
+    let prevMouseY = 0;
+    let orbitAzimuth = 0.35;
+    let orbitElevation = 0.38;
+    let orbitDistance = 140;
+
+    window.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button, aside, header, #sound-btn, .glass-panel')) return;
+      isDragging = true;
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - prevMouseX;
+      const deltaY = e.clientY - prevMouseY;
+      prevMouseX = e.clientX;
+      prevMouseY = e.clientY;
+
+      orbitAzimuth -= deltaX * 0.006;
+      orbitElevation = Math.max(0.08, Math.min(Math.PI / 2.2, orbitElevation + deltaY * 0.006));
+    });
+
+    window.addEventListener('mouseup', () => isDragging = false);
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1 && !e.target.closest('button, aside, header, #sound-btn, .glass-panel')) {
+        isDragging = true;
+        prevMouseX = e.touches[0].clientX;
+        prevMouseY = e.touches[0].clientY;
+      }
+    });
+    window.addEventListener('touchmove', (e) => {
+      if (!isDragging || e.touches.length !== 1) return;
+      const deltaX = e.touches[0].clientX - prevMouseX;
+      const deltaY = e.touches[0].clientY - prevMouseY;
+      prevMouseX = e.touches[0].clientX;
+      prevMouseY = e.touches[0].clientY;
+
+      orbitAzimuth -= deltaX * 0.006;
+      orbitElevation = Math.max(0.08, Math.min(Math.PI / 2.2, orbitElevation + deltaY * 0.006));
+    });
+    window.addEventListener('touchend', () => isDragging = false);
+
+    window.addEventListener('wheel', (e) => {
+      orbitDistance = Math.max(45, Math.min(340, orbitDistance + e.deltaY * 0.15));
+    }, { passive: true });
+
+    window.addEventListener('resize', () => {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+    });
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // Update dynamic polar sky cloud drift and time
+      skyMat.uniforms.uTime.value = time;
+
+      // Rotate mast scanner
+      radarScanner.rotation.y += delta * 5.5;
+
+      // Pulse wake
+      wakeMesh.material.opacity = 0.35 + Math.sin(time * 3.5) * 0.12;
+
+      allIcebergs.forEach(berg => {
+        berg.beacon.intensity = 1.8 + Math.sin(time * 5.0) * 1.2;
+        berg.ring.material.opacity = 0.45 + Math.sin(time * 3.0) * 0.2;
+      });
+
+      // Progress ship motion
+      if (STATE.isPlaying) {
+        STATE.progress += delta * 0.016 * STATE.simSpeed;
+        if (STATE.progress > 0.96) {
+          STATE.progress = 0.04;
+        }
+      }
+
+      // Compute ship coordinates & orientation on spline (gliding smoothly over flat water)
+      const currentPos = singleGreenCurve.getPointAt(STATE.progress);
+      const tangent = singleGreenCurve.getTangentAt(STATE.progress).normalize();
+      
+      // Place vessel steadily on the flat water surface
+      shipGroup.position.set(currentPos.x, currentPos.y, currentPos.z);
+
+      const targetLook = currentPos.clone().add(tangent);
+      targetLook.y = shipGroup.position.y;
+      shipGroup.lookAt(targetLook);
+
+      // Multi-target detection & rangefinder lines to ALL icebergs within sensor range
+      const RADAR_DETECTION_RANGE = 280; // Operational radar coverage (~115 km)
+      const shipSensorPos = new THREE.Vector3(currentPos.x, 6.2, currentPos.z);
+
+      let nearestBerg = allIcebergs[0];
+      let minBergDist = currentPos.distanceTo(allIcebergs[0].pos);
+
+      bergTrackers.forEach((tracker, idx) => {
+        const dist = currentPos.distanceTo(tracker.berg.pos);
+        if (dist < minBergDist) {
+          minBergDist = dist;
+          nearestBerg = tracker.berg;
+        }
+
+        // Detect all icebergs within radar range
+        if (dist <= RADAR_DETECTION_RANGE) {
+          tracker.line.visible = true;
+          tracker.reticle.visible = true;
+          tracker.pingRing.visible = true;
+
+          const bergSensorPos = new THREE.Vector3(tracker.berg.pos.x, 8.5, tracker.berg.pos.z);
+          tracker.line.geometry.setFromPoints([shipSensorPos, bergSensorPos]);
+          tracker.line.computeLineDistances();
+
+          const isClosest = (tracker.berg === nearestBerg);
+          const proxFactor = Math.max(0.25, 1.0 - (dist / RADAR_DETECTION_RANGE));
+
+          // Color code: Critical closest obstacle highlighted with higher intensity
+          if (isClosest) {
+            tracker.lineMat.color.setHex(dist < 85 ? 0xef4444 : 0x38bdf8);
+            tracker.lineMat.opacity = 0.95;
+            tracker.reticleMat.color.setHex(dist < 85 ? 0xef4444 : 0x38bdf8);
+          } else {
+            tracker.lineMat.color.setHex(0x06b6d4);
+            tracker.lineMat.opacity = proxFactor * 0.75;
+            tracker.reticleMat.color.setHex(0x06b6d4);
+          }
+
+          // Animate iceberg reticles
+          tracker.reticle.position.copy(bergSensorPos);
+          tracker.reticle.rotation.y += delta * (isClosest ? 2.4 : 1.4);
+          tracker.reticle.rotation.x += delta * 1.1;
+          const rScale = 1.0 + Math.sin(time * 3.8 + idx) * 0.22;
+          tracker.reticle.scale.set(rScale, rScale, rScale);
+
+          // Animate tactical radar ground ping ripples
+          const pingCycle = (time * 1.4 + idx * 0.6) % 2.0;
+          tracker.pingRing.scale.set(1 + pingCycle * 3.6, 1 + pingCycle * 3.6, 1);
+          tracker.pingRingMat.opacity = Math.max(0, 0.65 * (1.0 - pingCycle / 2.0));
+        } else {
+          tracker.line.visible = false;
+          tracker.reticle.visible = false;
+          tracker.pingRing.visible = false;
+        }
+      });
+
+      // Compass & Heading
+      const headingDeg = Math.round(((Math.atan2(tangent.x, tangent.z) * 180 / Math.PI) + 360) % 360);
+      if (compassNeedle) {
+        compassNeedle.style.transform = `rotate(${-headingDeg}deg)`;
+      }
+
+      // Camera view logic
+      if (STATE.cameraMode === 'chase') {
+        const chaseOffset = tangent.clone().multiplyScalar(-52);
+        chaseOffset.y = 26;
+        const camTargetPos = currentPos.clone().add(chaseOffset);
+        camera.position.lerp(camTargetPos, 0.08);
+
+        const lookAhead = currentPos.clone().add(tangent.clone().multiplyScalar(42));
+        lookAhead.y = 7;
+        camera.lookAt(lookAhead);
+
+      } else if (STATE.cameraMode === 'iceberg') {
+        // Focuses automatically on the nearest major iceberg along the current passage
+        const ibCamPos = nearestBerg.pos.clone().add(new THREE.Vector3(75, 45, 65));
+        camera.position.lerp(ibCamPos, 0.05);
+        camera.lookAt(shipGroup.position);
+
+      } else if (STATE.cameraMode === 'orbit') {
+        const target = shipGroup.position;
+        const ox = target.x + orbitDistance * Math.cos(orbitElevation) * Math.sin(orbitAzimuth);
+        const oy = target.y + orbitDistance * Math.sin(orbitElevation);
+        const oz = target.z + orbitDistance * Math.cos(orbitElevation) * Math.cos(orbitAzimuth);
+        camera.position.lerp(new THREE.Vector3(ox, oy, oz), 0.1);
+        camera.lookAt(target);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // Launch loop on load
+    window.onload = function() {
+      animate();
+    };
+  </script>
+</body>
+</html>
