@@ -4,7 +4,6 @@ import {
   FlagIcon,
   MapIcon,
   BellAlertIcon,
-  ChatBubbleLeftEllipsisIcon,
   HomeIcon,
   Bars3Icon,
   ChevronRightIcon,
@@ -16,7 +15,6 @@ const NAV_ITEMS: { id: import("../../types").PageId; label: string; icon: typeof
   { id: "icebergs", label: "Iceberg Tracking", icon: FlagIcon },
   { id: "planner", label: "Navigation Dashboard", icon: MapIcon },
   { id: "alerts", label: "Alert Message", icon: BellAlertIcon },
-  { id: "assistant", label: "AI Assistant", icon: ChatBubbleLeftEllipsisIcon },
 ];
 
 export function Sidebar() {
@@ -46,7 +44,7 @@ export function Sidebar() {
           </button>
 
           <div className={`flex items-center ${sidebarOpen ? "" : "hidden"}`}>
-            <img src="/logo.png" alt="Antarctic Route Explorer" className="h-14 w-[170px] object-contain object-left" />
+            <img src="/logo.png" alt="Antarctic Route Explorer" className="h-16 w-[190px] object-contain object-left shrink-0" />
           </div>
 
           <button
@@ -82,11 +80,6 @@ export function Sidebar() {
           ))}
         </nav>
 
-        <div className={`px-3 py-3 border-t border-slate-100 ${sidebarOpen ? "" : "flex justify-center"}`}>
-           <p className={`text-[11px] text-navy-400 text-center whitespace-nowrap ${sidebarOpen ? "block" : "hidden"}`}>
-             Problem Statement 26059
-           </p>
-        </div>
       </aside>
     </>
   );

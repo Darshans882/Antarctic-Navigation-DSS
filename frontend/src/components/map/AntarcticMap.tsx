@@ -8,10 +8,23 @@ import {
   Marker,
   Popup,
   useMap,
+  LayersControl,
+  LayerGroup,
 } from "react-leaflet";
 import L from "leaflet";
 import type { IcebergInfo, RouteResult, IcebergTrajectoryResponse } from "../../types";
 import { concentrationToCanvas, seaIceLegendStops } from "../../utils/colormap";
+import {
+  DEFAULT_ENC_LAYERS,
+  EncdisChartLayer,
+  type EncChartLayers,
+  type EncIceberg,
+  type EncRoutePoint,
+} from "./enc/EncdisChartLayer";
+import { EcdisSidebar, type EcdisVesselInfo } from "./enc/EcdisSidebar";
+
+/** Name of the ENC base layer entry; also the key for `baselayerchange`. */
+const ENC_LAYER_NAME = "ENC Chart (ECDIS)";
 
 export interface GridData {
   lat: number[];
@@ -206,6 +219,51 @@ function PersistMapViewLayer() {
       map.off("moveend", save);
     };
   }, [map]);
+
+  return null;
+}
+
+/**
+ * Reports the active base layer.
+ *
+ * `LayersControl.BaseLayer` always mounts its children and only toggles them
+ * on the map, so the ENC chart cannot infer from its own mount state whether
+ * it is the visible basemap.  Leaflet fires `baselayerchange` on the map with
+ * the layer name, which is the reliable signal.
+ */
+function BaseLayerWatcher({ onChange }: { onChange: (active: boolean) => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const handle = (event: L.LayersControlEvent) => {
+      onChange(event.name === ENC_LAYER_NAME);
+    };
+    map.on("baselayerchange", handle);
+    return () => {
+      map.off("baselayerchange", handle);
+    };
+  }, [map, onChange]);
+
+  return null;
+}
+
+/**
+ * Reports the map's centre latitude and zoom so the ECDIS panel can show a
+ * live chart scale.
+ */
+function MapViewTracker({ onChange }: { onChange: (s: { lat: number; zoom: number }) => void }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const report = () => {
+      onChange({ lat: map.getCenter().lat, zoom: map.getZoom() });
+    };
+    report();
+    map.on("moveend zoomend", report);
+    return () => {
+      map.off("moveend zoomend", report);
+    };
+  }, [map, onChange]);
 
   return null;
 }
@@ -430,6 +488,9 @@ export function AntarcticMap(props: AntarcticMapProps) {
   const [touchPinned, setTouchPinned] = useState(false);
   const [graticuleVisible, setGraticuleVisible] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [encActive, setEncActive] = useState(false);
+  const [encLayers, setEncLayers] = useState<EncChartLayers>(DEFAULT_ENC_LAYERS);
+  const [viewState, setViewState] = useState<{ lat: number; zoom: number }>({ lat: -68, zoom: 3.2 });
   const [animatedVesselPos, setAnimatedVesselPos] = useState<[number, number] | null>(vesselPos ?? null);
   const savedView = useMemo(() => {
     try {
@@ -547,6 +608,64 @@ export function AntarcticMap(props: AntarcticMapProps) {
     return calculateHeading(activeVesselPos[0], activeVesselPos[1], target[0], target[1]);
   }, [activeVesselPos, recommended]);
 
+  // ---- ENC / ECDIS chart layer -------------------------------------------
+  // The chart is fed the same live data the rest of the dashboard uses; it
+  // adds no new sources.
+
+  const encRoute = useMemo<EncRoutePoint[]>(() => {
+    if (!recommended || recommended.coordinates.length < 2) return [];
+    return recommended.coordinates.map((c, i) => ({
+      lat: c[0],
+      lon: c[1],
+      // Label a handful of evenly spaced vertices as chart waypoints.
+      name:
+        i % Math.max(1, Math.floor(recommended.coordinates.length / 6)) === 0
+          ? `WP${i + 1}`
+          : undefined,
+    }));
+  }, [recommended]);
+
+  const encMarks = useMemo<EncRoutePoint[]>(() => {
+    const marks: EncRoutePoint[] = [];
+    if (startPoint) marks.push({ lat: startPoint.lat, lon: startPoint.lon, name: startPoint.name });
+    if (endPoint) marks.push({ lat: endPoint.lat, lon: endPoint.lon, name: endPoint.name });
+    return marks;
+  }, [startPoint, endPoint]);
+
+  const encIcebergs = useMemo<EncIceberg[]>(
+    () =>
+      icebergs
+        .filter((b) => !b.on_land && b.latitude >= SELECTED_LAT_MIN && b.latitude <= SELECTED_LAT_MAX)
+        .slice(0, 400)
+        .map((b) => ({ lat: b.latitude, lon: b.longitude, id: b.iceberg_id })),
+    [icebergs],
+  );
+
+  const encVessel = useMemo(() => {
+    const pos = activeVesselPos;
+    if (!pos) return null;
+    return { lat: pos[0], lon: pos[1], label: vesselLabel, heading };
+  }, [activeVesselPos, vesselLabel, heading]);
+
+  const ecdisVessel = useMemo<EcdisVesselInfo | null>(() => {
+    const pos = activeVesselPos;
+    if (!pos) return null;
+    return {
+      lat: pos[0],
+      lon: pos[1],
+      label: vesselLabel,
+      // Course/heading come from the plotted route; the app has no live COG
+      // or SOG feed, so speed is reported as unknown rather than invented.
+      cog: heading,
+      sog: Number.NaN,
+      hdg: heading,
+    };
+  }, [activeVesselPos, vesselLabel, heading]);
+
+  const handleToggleEncLayer = useCallback((key: keyof EncChartLayers) => {
+    setEncLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
   return (
     <div className="relative w-full" style={{ height }}>
       <MapContainer
@@ -557,10 +676,30 @@ export function AntarcticMap(props: AntarcticMapProps) {
         className="h-full w-full"
         scrollWheelZoom
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <LayersControl position="bottomleft">
+          <LayersControl.BaseLayer checked name="Default Map">
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+          </LayersControl.BaseLayer>
+          <LayersControl.BaseLayer name={ENC_LAYER_NAME}>
+            {/* The chart is wrapped in a LayerGroup because that is what
+             *  react-leaflet registers with Leaflet's layer control — the chart
+             *  itself paints into a pane and adds no Leaflet layer of its own. */}
+            <LayerGroup>
+              <EncdisChartLayer
+                active={encActive}
+                seaIce={seaIce ?? null}
+                route={encRoute}
+                marks={encMarks}
+                icebergs={encIcebergs}
+                vessel={encVessel}
+                layers={encLayers}
+              />
+            </LayerGroup>
+          </LayersControl.BaseLayer>
+        </LayersControl>
 
         <CoordinateInteraction
           onMove={handleMapMove}
@@ -571,8 +710,14 @@ export function AntarcticMap(props: AntarcticMapProps) {
         <RefreshMapLayer refreshToken={refreshToken} />
         <FocusPointLayer point={focusPoint} />
         <PersistMapViewLayer />
+        <MapViewTracker onChange={setViewState} />
+        <BaseLayerWatcher onChange={setEncActive} />
 
-        {seaIce && <SeaIceOverlay seaIce={seaIce} />}
+        {/* The ENC chart bakes its own sea-ice area tint into the basemap, so
+         *  the concentration raster is only shown over it when the operator
+         *  explicitly asks for the overlay via the ECDIS Layers panel.  The
+         *  other dashboard layers are unaffected either way. */}
+        {seaIce && (!encActive || encLayers.seaIceOverlay) && <SeaIceOverlay seaIce={seaIce} />}
 
         {/* Selected-area boundary: dashed purple rectangle covering 55°S–75°S
          * with the same labels on the left and right edges.  Drawn from real
@@ -645,7 +790,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
           />
         )}
 
-        {/* Alternative routes — thin dashed blue line */}
+        {/* Alternative routes — dashed blue line */}
         {alternatives.map((alt, i) =>
           alt.coordinates.length > 0 ? (
             <Polyline
@@ -653,7 +798,7 @@ export function AntarcticMap(props: AntarcticMapProps) {
               positions={alt.coordinates}
               smoothFactor={1.5}
               pathOptions={{
-                color: "#60a5fa",
+                color: "#2563eb",
                 weight: 2,
                 opacity: 0.85,
                 dashArray: "8 6",
@@ -804,6 +949,17 @@ export function AntarcticMap(props: AntarcticMapProps) {
       {seaIce && showSeaIceLegend && (
         <SeaIceLegend />
       )}
+
+      {/* ECDIS chart panel — only while the ENC chart is the active basemap. */}
+      <EcdisSidebar
+        active={encActive}
+        vessel={ecdisVessel}
+        zoom={viewState.zoom}
+        centerLat={viewState.lat}
+        layers={encLayers}
+        onToggleLayer={handleToggleEncLayer}
+        encName="ANT S-57"
+      />
     </div>
   );
 }

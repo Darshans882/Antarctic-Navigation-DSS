@@ -2,7 +2,7 @@
   "vessels": [
     {
       "vessel_id": "polar_explorer",
-      "name": "Polar Explorer",
+      "name": "MV Ivan Papanin",
       "type": "ice_breaker",
       "length_m": 120,
       "beam_m": 22,
@@ -29,7 +29,7 @@
     },
     {
       "vessel_id": "research_vessel_sagar",
-      "name": "RV Sagar Nidhi",
+      "name": "MV Vasiliy Golovnin",
       "type": "research_vessel",
       "length_m": 105,
       "beam_m": 18,
@@ -56,7 +56,7 @@
     },
     {
       "vessel_id": "supply_cargo",
-      "name": "Antarctic Supply Vessel",
+      "name": "I/B Vladimir Ignatyuk",
       "type": "cargo",
       "length_m": 130,
       "beam_m": 20,

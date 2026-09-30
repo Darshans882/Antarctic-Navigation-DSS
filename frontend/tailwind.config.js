@@ -5,6 +5,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],
+        californian: ['"Californian FB"', '"CalifornianFB"', "Georgia", "serif"],
       },
       colors: {
         navy: {

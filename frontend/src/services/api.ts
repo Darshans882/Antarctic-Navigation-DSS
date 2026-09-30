@@ -1,6 +1,7 @@
 import axios from "axios";
 import type {
   AnalyticsSummaryResponse,
+  AssistantActionResultRequest,
   AssistantChatRequest,
   AssistantChatResponse,
   DatasetStatusResponse,
@@ -188,4 +189,70 @@ export const api = {
 
   assistantChat: (payload: AssistantChatRequest) =>
     http.post<AssistantChatResponse>("/assistant/chat", payload).then((r) => r.data),
+  assistantActionResult: (payload: AssistantActionResultRequest) =>
+    http
+      .post<AssistantChatResponse>("/assistant/action-result", payload)
+      .then((r) => r.data),
+  // ---- Advanced Sea-Ice Intelligence endpoints (/api/sea-ice/intelligence/...) ----
+  seaIceClassification: () =>
+    memoizedRequest("seaIceClassification", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/classification").then((r) => r.data),
+    ),
+
+  seaIceThickness: () =>
+    memoizedRequest("seaIceThickness", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/thickness").then((r) => r.data),
+    ),
+
+  seaIceKeelDepth: () =>
+    memoizedRequest("seaIceKeelDepth", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/keel-depth").then((r) => r.data),
+    ),
+
+  seaIceMeltPond: () =>
+    memoizedRequest("seaIceMeltPond", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/melt-pond").then((r) => r.data),
+    ),
+
+  seaIceChange: (horizonHours = 24) =>
+    memoizedRequest(`seaIceChange:${horizonHours}`, () =>
+      http
+        .get<Record<string, unknown>>("/sea-ice/intelligence/change", {
+          params: { horizon_hours: horizonHours },
+        })
+        .then((r) => r.data),
+    ),
+
+  seaIceMeltZones: (horizonHours = 24) =>
+    memoizedRequest(`seaIceMeltZones:${horizonHours}`, () =>
+      http
+        .get<Record<string, unknown>>("/sea-ice/intelligence/melt-zones", {
+          params: { horizon_hours: horizonHours },
+        })
+        .then((r) => r.data),
+    ),
+
+  seaIceRisk: (horizonHours = 24) =>
+    memoizedRequest(`seaIceRisk:${horizonHours}`, () =>
+      http
+        .get<Record<string, unknown>>("/sea-ice/intelligence/risk", {
+          params: { horizon_hours: horizonHours },
+        })
+        .then((r) => r.data),
+    ),
+
+  seaIceClimateTrend: () =>
+    memoizedRequest("seaIceClimateTrend", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/climate-trend").then((r) => r.data),
+    ),
+
+  seaIceModelConvergence: () =>
+    memoizedRequest("seaIceModelConvergence", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/model-convergence").then((r) => r.data),
+    ),
+
+  seaIceSpectral: () =>
+    memoizedRequest("seaIceSpectral", () =>
+      http.get<Record<string, unknown>>("/sea-ice/intelligence/spectral").then((r) => r.data),
+    ),
 };

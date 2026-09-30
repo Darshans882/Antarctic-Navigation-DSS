@@ -13,15 +13,30 @@ always agree — including which datasets are demo and which are real.
 """
 from __future__ import annotations
 
+import json
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from services import analytics_service, dataset_service
+from services import sea_ice_intelligence_service as intel
 from services.iceberg_service import distance_between_icebergs, iceberg_service
 from services.navigation_service import navigation_service
 from services.sea_ice_service import sea_ice_service
 
 ICEBERG_ID_RE = re.compile(r"([A-Z]{2,5})-?[A-Z]?\d{3,4}", re.IGNORECASE)
+
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "app" / "data" / "config"
+
+
+@lru_cache(maxsize=8)
+def _config(name: str) -> dict:
+    """Load one of the static reference config files, cached per process."""
+    try:
+        return json.loads((CONFIG_DIR / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 def _safe(service_call):
@@ -221,11 +236,14 @@ def route_details(
         },
         "alternatives": [
             {
-                "label": f"Alternative {idx + 1}",
+                "label": f"Alternative {idx + 1}" + (f" ({a.get('preference', '').title()})" if a.get("preference") else ""),
+                "preference": a.get("preference"),
                 "distance_km": a.get("distance_km"),
+                "distance_nm": a.get("distance_nm") or round((a.get("distance_km") or 0) * 0.539957, 2),
                 "travel_time_hours": a.get("travel_time_hours"),
                 "fuel_tons": a.get("fuel_tons"),
-                "risk_level": a.get("risk_level"),
+                "risk_level": a.get("risk_level") or a.get("max_risk_level"),
+                "risk_score": a.get("risk_score"),
             }
             for idx, a in enumerate(data.get("alternatives") or [])
         ],
@@ -324,14 +342,38 @@ def datasets_status() -> dict:
     }
 
 
-def closest_iceberg() -> dict:
-    """Pick the tracked iceberg nearest a reference vessel position (haversine)."""
+def closest_iceberg(
+    ref_lat: float | None = None,
+    ref_lon: float | None = None,
+    route_waypoints: list[dict] | None = None,
+) -> dict:
+    """Pick the tracked iceberg nearest an active route or reference vessel position (haversine)."""
 
     def _call():
         items = (iceberg_service.list_icebergs() or {}).get("icebergs") or []
         if not items:
             raise ValueError("No tracked icebergs available")
-        lat, lon = -66.5, 140.0
+
+        # 1. If route waypoints are provided, calculate closest distance to the entire route corridor
+        if route_waypoints and len(route_waypoints) > 0:
+            best, best_km, best_wp = None, float("inf"), None
+            for it in items:
+                i_lat, i_lon = it["latitude"], it["longitude"]
+                for wp in route_waypoints:
+                    w_lat = wp.get("latitude") if wp.get("latitude") is not None else wp.get("lat")
+                    w_lon = wp.get("longitude") if wp.get("longitude") is not None else wp.get("lon")
+                    if w_lat is None or w_lon is None:
+                        continue
+                    km = distance_between_icebergs(i_lat, i_lon, float(w_lat), float(w_lon)).get("distance_km", float("inf"))
+                    if km < best_km:
+                        best, best_km = it, km
+                        best_wp = (float(w_lat), float(w_lon))
+            if best is not None:
+                return {"items": items, "best": best, "best_km": best_km, "to_route": True, "waypoint": best_wp}
+
+        # 2. Distance from reference point (vessel or default)
+        lat = ref_lat if ref_lat is not None else -66.5
+        lon = ref_lon if ref_lon is not None else 140.0
         best, best_km = None, float("inf")
         for it in items:
             km = distance_between_icebergs(
@@ -339,27 +381,269 @@ def closest_iceberg() -> dict:
             ).get("distance_km", float("inf"))
             if km < best_km:
                 best, best_km = it, km
-        return {"items": items, "best": best, "best_km": best_km}
+        return {"items": items, "best": best, "best_km": best_km, "to_route": False, "waypoint": (lat, lon)}
 
     data = _safe(_call)
     if isinstance(data, dict) and data.get("status") == "error":
         return {"name": "closest_iceberg", "status": "error", "note": str(data.get("error"))}
     best = data["best"]
+    best_km = data["best_km"]
+    to_route = data.get("to_route", False)
+
+    # Risk level classification based on proximity
+    risk_level = "CRITICAL" if best_km < 10.0 else ("WARNING" if best_km < 25.0 else ("ADVISORY" if best_km < 50.0 else "CLEAR"))
+
     payload = {
-        "reference_position_lat": -66.5,
-        "reference_position_lon": 140.0,
         "closest_iceberg": best.get("iceberg_id"),
-        "closest_distance_km": round(data["best_km"], 2),
-        "how": "haversine distance from a reference vessel position (-66.5, 140.0)",
+        "closest_distance_km": round(best_km, 2),
+        "closest_distance_nm": round(best_km * 0.539957, 2),
+        "iceberg_latitude": best.get("latitude"),
+        "iceberg_longitude": best.get("longitude"),
+        "iceberg_size": f"{best.get('length_km', 0):.1f} x {best.get('width_km', 0):.1f} km" if best.get("length_km") else "Estimated medium berg",
+        "risk_level": risk_level,
+        "reference": "active navigation route corridor" if to_route else f"vessel position ({data['waypoint'][0]:.2f}, {data['waypoint'][1]:.2f})",
+        "how": "haversine minimum distance from tracked icebergs to route waypoints" if to_route else f"haversine distance from vessel position ({data['waypoint'][0]:.2f}, {data['waypoint'][1]:.2f})",
     }
     return {
         "name": "closest_iceberg",
         "status": "ok",
         "demo": bool(best.get("demo")),
         "classification": None,
-        "note": "computed in-process from latest reported positions",
+        "note": "computed in-process from latest reported positions and route corridor",
         "data": payload,
     }
+
+
+# --------------------------------------------------------------------------
+# Sea-ice intelligence (same analytics the Sea-Ice Forecast page renders)
+# --------------------------------------------------------------------------
+def _intel(name: str, tool_name: str, **kwargs) -> dict:
+    """Run one intelligence analytic and normalise it into a tool result."""
+    data = _safe(lambda: intel.REGISTRY[name](**kwargs))
+    if data.get("status") == "error":
+        return {"name": tool_name, "status": "error", "note": str(data.get("error"))}
+    if not data.get("available"):
+        return {
+            "name": tool_name,
+            "status": "ok",
+            "demo": False,
+            "note": f"not available - {data.get('reason', 'no reason given')}",
+            "data": {"available": False, "reason": data.get("reason")},
+        }
+    payload = {k: v for k, v in data.items() if k != "available"}
+    return {
+        "name": tool_name,
+        "status": "ok",
+        "demo": bool(data.get("demo")),
+        "classification": data.get("classification"),
+        "note": data.get("note") or "derived from the sea-ice concentration field",
+        "data": payload,
+    }
+
+
+def sea_ice_classification() -> dict:
+    """Share of the field that is open water / first-year / mixed / multi-year ice."""
+    return _intel("ice_classification", "sea_ice_classification")
+
+
+def sea_ice_thickness() -> dict:
+    """Estimated ice thickness in metres."""
+    return _intel("ice_thickness", "sea_ice_thickness")
+
+
+def sea_ice_keel_depth() -> dict:
+    """Estimated keel depth below the waterline and clearance beneath the ice."""
+    return _intel("keel_depth", "sea_ice_keel_depth")
+
+
+def sea_ice_melt_pond() -> dict:
+    """Estimated melt-pond coverage."""
+    return _intel("melt_pond", "sea_ice_melt_pond")
+
+
+def sea_ice_change(horizon_hours: int = 24) -> dict:
+    """Now vs. forecast: which grid cells are getting icier or icier-free."""
+    return _intel("ice_change", "sea_ice_change", horizon_hours=horizon_hours)
+
+
+def sea_ice_melt_zones(horizon_hours: int = 24) -> dict:
+    """Projected melt zones bucketed by severity."""
+    return _intel("melt_zones", "sea_ice_melt_zones", horizon_hours=min(horizon_hours, 168))
+
+
+def sea_ice_risk(horizon_hours: int = 24) -> dict:
+    """Ice-conditions navigation risk score, level and contributing factors."""
+    return _intel("ice_risk", "sea_ice_risk", horizon_hours=horizon_hours)
+
+
+def sea_ice_climate_trend() -> dict:
+    """Long-run ice-cover trend against the stored history."""
+    return _intel("climate_trend", "sea_ice_climate_trend")
+
+
+def model_convergence() -> dict:
+    """Evaluation metrics for the sea-ice models, compared side by side."""
+    return _intel("model_convergence", "model_convergence")
+
+
+# --------------------------------------------------------------------------
+# Static reference data (vessels / ports / stations / simulation settings)
+# --------------------------------------------------------------------------
+def fleet_reference() -> dict:
+    """Vessels, departure ports, research stations and simulation settings.
+
+    Static reference data read straight from the shipped config files, so the
+    assistant and the planner dropdowns always agree on names and ids.
+    """
+    vessels = (_config("vessels.json").get("vessels") or [])
+    ports = (_config("ports.json").get("ports") or [])
+    centers = (_config("research_centers.json").get("research_centers") or [])
+    simulation = _config("simulation.json").get("simulation") or {}
+
+    return {
+        "name": "fleet_reference",
+        "status": "ok",
+        "demo": False,
+        "classification": "static_reference_config",
+        "note": "vessels, ports and stations from the shipped configuration",
+        "data": {
+            "vessels": [
+                {
+                    "vessel_id": v.get("vessel_id"),
+                    "name": v.get("name"),
+                    "type": v.get("type"),
+                    "ice_class": v.get("ice_class"),
+                    "draft_m": v.get("draft_m"),
+                    "length_m": v.get("length_m"),
+                    "cruise_speed_knots": v.get("cruise_speed_knots"),
+                    "safety_distance_nm": v.get("safety_distance_nm"),
+                    "description": v.get("description"),
+                }
+                for v in vessels
+            ],
+            "departure_ports": [
+                {
+                    "port_id": p.get("port_id"),
+                    "name": p.get("name"),
+                    "country": p.get("country"),
+                    "facilities": p.get("facilities"),
+                }
+                for p in ports
+            ],
+            "research_centers": [
+                {
+                    "center_id": c.get("center_id"),
+                    "name": c.get("name"),
+                    "country": c.get("country"),
+                    "sector": c.get("sector"),
+                }
+                for c in centers
+            ],
+            "simulation": {
+                "time_step_hours": simulation.get("time_step_hours"),
+                "max_simulation_hours": simulation.get("max_simulation_hours"),
+                "default_vessel_id": simulation.get("default_vessel_id"),
+                "default_departure_port_id": simulation.get("default_departure_port_id"),
+                "default_destination_id": simulation.get("default_destination_id"),
+                "navigation": simulation.get("navigation"),
+            },
+        },
+    }
+
+
+def iceberg_detail(iceberg_id: str) -> dict:
+    """Full record for one iceberg: size, observation count, classification."""
+    data = _safe(lambda: iceberg_service.detail(iceberg_id))
+    if data is None:
+        return {
+            "name": "iceberg_detail",
+            "status": "error",
+            "note": f"Iceberg {iceberg_id} is not a tracked iceberg",
+        }
+    payload = {
+        "iceberg_id": data.get("iceberg_id"),
+        "latitude": data.get("latitude"),
+        "longitude": data.get("longitude"),
+        "length_km": data.get("length_km"),
+        "width_km": data.get("width_km"),
+        "observation_count": data.get("observation_count"),
+        "classification": data.get("classification"),
+        "last_observed": data.get("last_observed") or data.get("timestamp"),
+    }
+    return _core(data, "iceberg_detail", payload)
+
+
+# --------------------------------------------------------------------------
+# Requirement 6 Standardized DSS Tool Functions
+# --------------------------------------------------------------------------
+def get_sea_ice_forecast(horizon_hours: int = 24, model: str = "persistence") -> dict:
+    return sea_ice_forecast(horizon_hours=horizon_hours, model=model)
+
+def get_current_sea_ice() -> dict:
+    return sea_ice_current()
+
+def get_iceberg_data() -> dict:
+    return iceberg_list()
+
+def get_selected_iceberg(iceberg_id: str = "DEMO-B000") -> dict:
+    return iceberg_detail(iceberg_id)
+
+def get_nearest_iceberg(ref_lat: float | None = None, ref_lon: float | None = None, route_waypoints: list[dict] | None = None) -> dict:
+    return closest_iceberg(ref_lat=ref_lat, ref_lon=ref_lon, route_waypoints=route_waypoints)
+
+def get_iceberg_trajectory(iceberg_id: str = "DEMO-B000", horizon_hours: int = 24) -> dict:
+    return iceberg_trajectory(iceberg_id=iceberg_id, horizon_hours=horizon_hours)
+
+def get_navigation_state(start_lat: float = -65.0, start_lon: float = 140.0, dest_lat: float = -77.8469, dest_lon: float = 166.6687, vessel_id: str = "polar_explorer") -> dict:
+    return route_details(start_lat=start_lat, start_lon=start_lon, dest_lat=dest_lat, dest_lon=dest_lon, vessel_id=vessel_id)
+
+def get_current_route(start_lat: float = -65.0, start_lon: float = 140.0, dest_lat: float = -77.8469, dest_lon: float = 166.6687, vessel_id: str = "polar_explorer") -> dict:
+    return route_details(start_lat=start_lat, start_lon=start_lon, dest_lat=dest_lat, dest_lon=dest_lon, vessel_id=vessel_id)
+
+def get_available_routes(start_lat: float = -65.0, start_lon: float = 140.0, dest_lat: float = -77.8469, dest_lon: float = 166.6687, vessel_id: str = "polar_explorer") -> dict:
+    return route_details(start_lat=start_lat, start_lon=start_lon, dest_lat=dest_lat, dest_lon=dest_lon, vessel_id=vessel_id)
+
+def get_route_risk(horizon_hours: int = 24) -> dict:
+    return sea_ice_risk(horizon_hours=horizon_hours)
+
+def get_vessel_state(vessel_id: str = "polar_explorer") -> dict:
+    from app.config import load_vessels
+    vessels = {v.get("vessel_id"): v for v in load_vessels()}
+    vinfo = vessels.get(vessel_id) or vessels.get("polar_explorer") or {}
+    return {
+        "name": "get_vessel_state",
+        "status": "ok",
+        "demo": False,
+        "note": "configured vessel specifications",
+        "data": vinfo,
+    }
+
+def get_active_alerts() -> dict:
+    return {
+        "name": "get_active_alerts",
+        "status": "ok",
+        "demo": False,
+        "note": "active system navigation alerts",
+        "data": {"alerts": []},
+    }
+
+def get_system_status() -> dict:
+    data = dataset_service.from_database()
+    real_count = len([d for d in data if not d.get("demo")]) if isinstance(data, list) else 0
+    return {
+        "name": "get_system_status",
+        "status": "ok",
+        "demo": real_count == 0,
+        "note": "system backend connectivity and dataset status",
+        "data": {
+            "backend_connected": True,
+            "real_data_available": real_count > 0,
+            "datasets": data,
+        },
+    }
+
+def get_dataset_status() -> dict:
+    return datasets_status()
 
 
 # --------------------------------------------------------------------------
@@ -368,7 +652,17 @@ def closest_iceberg() -> dict:
 TOOLS: dict[str, Any] = {
     "sea_ice_forecast": sea_ice_forecast,
     "sea_ice_current": sea_ice_current,
+    "sea_ice_classification": sea_ice_classification,
+    "sea_ice_thickness": sea_ice_thickness,
+    "sea_ice_keel_depth": sea_ice_keel_depth,
+    "sea_ice_melt_pond": sea_ice_melt_pond,
+    "sea_ice_change": sea_ice_change,
+    "sea_ice_melt_zones": sea_ice_melt_zones,
+    "sea_ice_risk": sea_ice_risk,
+    "sea_ice_climate_trend": sea_ice_climate_trend,
+    "model_convergence": model_convergence,
     "iceberg_list": iceberg_list,
+    "iceberg_detail": iceberg_detail,
     "iceberg_trajectory": iceberg_trajectory,
     "iceberg_distance": iceberg_distance,
     "route_details": route_details,
@@ -376,6 +670,22 @@ TOOLS: dict[str, Any] = {
     "model_metrics": model_metrics,
     "datasets_status": datasets_status,
     "closest_iceberg": closest_iceberg,
+    "fleet_reference": fleet_reference,
+    # Requirement 6 standardized tool names
+    "get_sea_ice_forecast": get_sea_ice_forecast,
+    "get_current_sea_ice": get_current_sea_ice,
+    "get_iceberg_data": get_iceberg_data,
+    "get_selected_iceberg": get_selected_iceberg,
+    "get_nearest_iceberg": get_nearest_iceberg,
+    "get_iceberg_trajectory": get_iceberg_trajectory,
+    "get_navigation_state": get_navigation_state,
+    "get_current_route": get_current_route,
+    "get_available_routes": get_available_routes,
+    "get_route_risk": get_route_risk,
+    "get_vessel_state": get_vessel_state,
+    "get_active_alerts": get_active_alerts,
+    "get_system_status": get_system_status,
+    "get_dataset_status": get_dataset_status,
 }
 
 

@@ -61,9 +61,40 @@ if (-not $SkipInstall) {
 }
 
 Write-Host "Starting backend on all network interfaces at http://0.0.0.0:8000 ..." -ForegroundColor Green
-Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
-    Select-Object -ExpandProperty OwningProcess -Unique |
-    ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+$allProcesses = Get-CimInstance Win32_Process
+$backendLaunchers = @($allProcesses | Where-Object {
+    $_.ExecutablePath -like "*powershell.exe" -and $_.CommandLine -match "uvicorn main:app.*--port 8000"
+})
+$backendProcessTree = @($backendLaunchers)
+$parentIds = @($backendLaunchers | ForEach-Object ProcessId)
+while ($parentIds.Count -gt 0) {
+    $children = @($allProcesses | Where-Object { $_.ParentProcessId -in $parentIds })
+    if ($children.Count -eq 0) { break }
+    $backendProcessTree += $children
+    $parentIds = @($children | ForEach-Object ProcessId)
+}
+for ($index = $backendProcessTree.Count - 1; $index -ge 0; $index--) {
+    Stop-Process -Id $backendProcessTree[$index].ProcessId -Force -ErrorAction SilentlyContinue
+}
+
+$backendListeners = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+foreach ($listenerProcessId in $backendListeners) {
+    $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $listenerProcessId"
+    $backendProcessId = $listenerProcessId
+    while ($processInfo) {
+        if ($processInfo.ExecutablePath -like "*python.exe" -and $processInfo.CommandLine -match "-m uvicorn main:app") {
+            $backendProcessId = $processInfo.ProcessId
+        }
+        if ($processInfo.ParentProcessId -le 0 -or $processInfo.ParentProcessId -eq $processInfo.ProcessId) {
+            break
+        }
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $($processInfo.ParentProcessId)"
+    }
+    if (Get-Process -Id $backendProcessId -ErrorAction SilentlyContinue) {
+        & taskkill.exe /PID $backendProcessId /T /F 2>$null | Out-Null
+    }
+}
 Start-Process powershell.exe -WorkingDirectory $backendPath -ArgumentList @(
     "-NoExit",
     "-ExecutionPolicy", "Bypass",

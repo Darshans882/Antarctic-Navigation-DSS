@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import Globe, { type GlobeMethods } from "react-globe.gl";
+import * as THREE from "three";
 import type { IcebergInfo, IcebergTrajectoryResponse } from "../../types";
 import { concentrationColor } from "../../utils/colormap";
 import { haversineKm } from "../../utils/haversine";
@@ -105,7 +106,19 @@ export interface Antarctic3DGlobeProps {
   height?: string;
 }
 
-export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
+export interface GlobeMapRef {
+  resize: () => void;
+  flyTo: (options: {
+    center?: [number, number];
+    zoom?: number;
+    pitch?: number;
+    bearing?: number;
+    duration?: number;
+    essential?: boolean;
+  }) => void;
+}
+
+export const Antarctic3DGlobe = forwardRef<GlobeMapRef, Antarctic3DGlobeProps>((props, ref) => {
   const {
     seaIce,
     seaIceTimestamp,
@@ -141,6 +154,57 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
       setWebglOk(false);
     }
   }, []);
+
+  useImperativeHandle(ref, () => ({
+    resize: () => {
+      // Globe auto-resizes via useSize, but we can manually trigger if needed
+    },
+    flyTo: (options) => {
+      const g = globeRef.current;
+      if (!g) return;
+
+      const camera = g.camera() as THREE.PerspectiveCamera;
+      const controls = g.controls() as any;
+
+      camera.fov = 45;
+      camera.near = 0.1;
+      camera.far = 100;
+      camera.updateProjectionMatrix();
+
+      const startPos = camera.position.clone();
+      const startTarget = controls.target.clone();
+
+      const { zoom = 2.6, pitch = 30, duration = 1200 } = options;
+
+      // Calculate responsive values
+      // Base distance from 0, 2.8, 5.2 is approx 5.9
+      // Base zoom is 2.6
+      const zoomScale = 2.6 / zoom;
+
+      // Adjust Z (pitch approx) based on pitch ratio from 30
+      const pitchScale = pitch / 30;
+
+      const endPos = new THREE.Vector3(0, 2.8 * zoomScale, 5.2 * zoomScale * pitchScale);
+      const endTarget = new THREE.Vector3(0, -0.35, 0);
+
+      const startTime = performance.now();
+      const animate = (time: number) => {
+        const elapsed = time - startTime;
+        const t = Math.min(elapsed / duration, 1);
+
+        // easeInOut
+        const easeT = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+
+        camera.position.lerpVectors(startPos, endPos, easeT);
+        controls.target.lerpVectors(startTarget, endTarget, easeT);
+
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      requestAnimationFrame(animate);
+    }
+  }));
 
   const seaIcePoints = useMemo<SeaIcePoint[]>(() => {
     if (!seaIce || !seaIce.lat?.length || !seaIce.concentration?.length) return [];
@@ -239,7 +303,7 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
       p.longitude,
     ]);
     if (obs.length > 1) {
-      paths.push({ points: obs, color: "#6d28d9", dash: 0, stroke: 0.9 });
+      paths.push({ points: obs, color: "#0b3d6e", dash: 0, stroke: 2 });
     }
     const connectedPrediction = obs.length > 0 ? [obs[obs.length - 1], ...pred] : pred;
     if (connectedPrediction.length > 1) {
@@ -259,8 +323,92 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
   );
 
   // --- camera control ---
-  // Antarctica-focused default view: Southern Ocean and Antarctic continent center stage.
-  const HOME_POV = useMemo(() => ({ lat: -90, lng: 0, altitude: 1.6 }), []);
+  // On load: snap to polar top-down, pause 500ms, animate 2s to flat low-angle.
+  const introPlayedRef = useRef(false);
+
+  /**
+   * animateCam
+   *  toPolar=false → intro:  polar top-down  ➜  flat low-angle  (2 s default)
+   *  toPolar=true  → reset:  current pos     ➜  flat low-angle  (1 s default)
+   *
+   * Both end at the FLAT LOW-ANGLE view so the globe never snaps back to polar
+   * on reset (reset just means "return to the nice flat view").
+   *
+   * react-globe.gl scene units: globe radius ≈ 100, Y axis = North Pole direction.
+   *
+   * POLAR TOP-DOWN (start of intro only):
+   *   Camera is placed in FRONT of the globe (positive Z) at equatorial level,
+   *   looking at (0, -GLOBE_R, 0) — i.e. the South Pole on the surface.
+   *   This gives a circular polar overhead look without flipping OrbitControls.
+   *
+   * FLAT LOW-ANGLE (permanent end state):
+   *   Camera is above the Southern Ocean surface (~55°S) close to the globe,
+   *   looking toward the South Pole.  The resulting render is the wide, flat,
+   *   horizon-style view the user requested.
+   */
+  const GLOBE_R = 100;
+
+  // ── POLAR snap position ────────────────────────────────────────────────────
+  // Sit at equatorial distance in front (+Z), tilted down toward the south pole.
+  // OrbitControls stays happy (camera is never below the globe).
+  const POLAR_POS    = new THREE.Vector3(0, GLOBE_R * 0.5, GLOBE_R * 2.8);
+  const POLAR_TARGET = new THREE.Vector3(0, -GLOBE_R * 0.8, 0);   // toward S.Pole surface
+  const POLAR_FOV    = 38;
+
+  // ── LOW-ANGLE oblique position ─────────────────────────────────────────────
+  // Camera at ~55°S latitude, just above the ocean, looking toward pole.
+  // elevDeg = elevation BELOW the equatorial plane.
+  const elevRad    = (55 * Math.PI) / 180;            // 55° below equator
+  const lowDist    = GLOBE_R * 1.75;                  // close to surface
+  const LOW_POS    = new THREE.Vector3(
+    0,
+    -lowDist * Math.sin(elevRad),                     // below equatorial plane
+     lowDist * Math.cos(elevRad),                     // in front of globe
+  );
+  const LOW_TARGET  = new THREE.Vector3(0, -GLOBE_R * 0.95, 0);  // South Pole surface
+  const LOW_FOV    = 65;                              // wide cinematic FOV
+
+  const animateCam = useCallback(
+    (toPolar: boolean, duration = 2000) => {
+      const g = globeRef.current;
+      if (!g) return;
+      const camera   = g.camera() as THREE.PerspectiveCamera;
+      const controls = g.controls() as any;
+      if (!camera || !controls) return;
+
+      const startPos    = camera.position.clone();
+      const startTarget = controls.target.clone();
+      const startFov    = camera.fov;
+
+      // Both "reset" and "intro end" land at the flat low-angle view.
+      // toPolar is kept for future use but currently unused (reset = flat too).
+      const endPos    = toPolar ? POLAR_POS    : LOW_POS;
+      const endTarget = toPolar ? POLAR_TARGET : LOW_TARGET;
+      const endFov    = toPolar ? POLAR_FOV    : LOW_FOV;
+
+      const startTime = performance.now();
+
+      // easeInOutCubic
+      const ease = (t: number) =>
+        t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+      const tick = (now: number) => {
+        const raw = Math.min((now - startTime) / duration, 1);
+        const e   = ease(raw);
+
+        camera.position.lerpVectors(startPos, endPos, e);
+        controls.target.lerpVectors(startTarget, endTarget, e);
+        camera.fov = startFov + (endFov - startFov) * e;
+        camera.updateProjectionMatrix();
+        controls.update();
+
+        if (raw < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const flyToIceberg = useCallback(
     (id: string | null | undefined) => {
@@ -282,16 +430,18 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
   const zoom = useCallback((factor: number) => {
     const g = globeRef.current;
     if (!g) return;
-    const pov = g.pointOfView();
-    g.pointOfView(
-      { lat: pov.lat, lng: pov.lng, altitude: Math.max(0.5, pov.altitude * factor) },
-      350,
-    );
+    const camera   = g.camera() as THREE.PerspectiveCamera;
+    const controls = g.controls() as any;
+    const dir      = camera.position.clone().normalize();
+    const newDist  = Math.max(110, camera.position.length() * factor);
+    camera.position.copy(dir.multiplyScalar(newDist));
+    if (controls) controls.update();
   }, []);
 
+  // Reset → smoothly return to the flat low-angle view (1 s)
   const resetView = useCallback(() => {
-    globeRef.current?.pointOfView(HOME_POV, 700);
-  }, [HOME_POV]);
+    animateCam(false, 1000);
+  }, [animateCam]);
 
   const toggleRotate = useCallback((on: boolean) => {
     const g = globeRef.current;
@@ -305,6 +455,8 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
   const pointLngFn = (d: object) => (d as SeaIcePoint | IcebergPoint).lng;
   const pointAltFn = (d: object) => {
     const p = d as SeaIcePoint | IcebergPoint;
+    // Sea-ice concentration data lies FLAT on the surface (altitude 0.005 = nearly zero)
+    if ("concentration" in p) return 0.005;
     return "altitude" in p ? p.altitude : 0.025;
   };
   const pointColorFn = (d: object) => {
@@ -359,7 +511,28 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
             globeImageUrl={`${import.meta.env.BASE_URL ?? ""}data/world-map.png`}
             atmosphereColor="#a7d7f5"
             atmosphereAltitude={0.12}
-            onGlobeReady={() => globeRef.current?.pointOfView(HOME_POV, 0)}
+            onGlobeReady={() => {
+              // INTRO ANIMATION — runs once per component lifetime.
+              // Guard prevents re-firing on HMR / React StrictMode double-invoke.
+              if (introPlayedRef.current) return;
+              introPlayedRef.current = true;
+
+              const g = globeRef.current;
+              if (!g) return;
+              const camera   = g.camera() as THREE.PerspectiveCamera;
+              const controls = g.controls() as any;
+              if (!camera || !controls) return;
+
+              // ── Step 1: snap instantly to the polar top-down view ─────────
+              camera.fov = POLAR_FOV;
+              camera.updateProjectionMatrix();
+              camera.position.copy(POLAR_POS);
+              controls.target.copy(POLAR_TARGET);
+              controls.update();
+
+              // ── Step 2: after 500 ms pause, animate to the flat low-angle ─
+              setTimeout(() => animateCam(false, 2000), 500);
+            }}
             pointsData={pointData}
             pointLat={pointLatFn}
             pointLng={pointLngFn}
@@ -407,4 +580,4 @@ export function Antarctic3DGlobe(props: Antarctic3DGlobeProps) {
       )}
     </div>
   );
-}
+});

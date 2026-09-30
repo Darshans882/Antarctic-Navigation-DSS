@@ -32,7 +32,7 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description=(
         "AI-enabled Antarctic sea-ice, iceberg trajectory, and navigation "
-        "decision support system. Problem Statement ID: 26059 (MoES/NCPOR)."
+        "decision support system."
     ),
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
     lifespan=lifespan,

@@ -432,18 +432,133 @@ export interface AssistantMessage {
   content: string;
 }
 
+/** A route card, trimmed down to what the assistant needs to talk about it. */
+export interface AssistantRouteSummary {
+  id: string;
+  label: string;
+  risk_level?: string | null;
+  distance_nm?: number | null;
+  duration_hours?: number | null;
+  is_recommended?: boolean;
+}
+
+/** The voyage simulation's current state, as held by NavigationPlanner. */
+export interface AssistantJourneyContext {
+  journey_id?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  journey_mode?: string | null;
+  status: "not_started" | "active" | "complete";
+  total_distance_nm?: number | null;
+  total_fuel_tons?: number | null;
+  estimated_duration_hours?: number | null;
+  max_risk_level?: string | null;
+  route_update_count?: number | null;
+  vessel_lat?: number | null;
+  vessel_lon?: number | null;
+  current_time_hours?: number | null;
+  progress_percent?: number | null;
+  remaining_distance_nm?: number | null;
+  remaining_fuel_tons?: number | null;
+  is_complete?: boolean | null;
+}
+
+export interface AssistantNavigationContext {
+  port_id?: string | null;
+  center_id?: string | null;
+  vessel_id?: string | null;
+  journey_mode?: string | null;
+  live_lat?: string | null;
+  live_lon?: string | null;
+  route_id?: string | null;
+  destination_name?: string | null;
+  selected_route?: AssistantRouteSummary | null;
+  routes_available: AssistantRouteSummary[];
+  journey?: AssistantJourneyContext | null;
+  time_step_hours?: number | null;
+}
+
+export interface AssistantVesselContext {
+  vessel_id?: string | null;
+  name?: string | null;
+  lat?: number | null;
+  lon?: number | null;
+  heading_deg?: number | null;
+  speed_knots?: number | null;
+  /** The app reports speed as unknown rather than inventing it. */
+  speed_known: boolean;
+}
+
+/** The state the assistant is being asked to act on. */
+export interface AssistantDashboardContext {
+  start_lat?: number;
+  start_lon?: number;
+  dest_lat?: number;
+  dest_lon?: number;
+  vessel_id?: string;
+  preference?: string;
+  page?: PageId;
+  sea_ice_horizon?: number;
+  selected_iceberg_id?: string;
+  navigation?: AssistantNavigationContext;
+  vessel?: AssistantVesselContext;
+  alert_context?: Array<{
+    title: string;
+    message: string;
+    type: string;
+    severity: string;
+    reason?: string | null;
+    recommended_action?: string | null;
+    selected_route_label?: string | null;
+    iceberg_id?: string | null;
+    distance_km?: number | null;
+    read?: boolean | null;
+    timestamp?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+  }>;
+  unread_alert_count?: number;
+}
+
+/** An action the assistant validated and wants the browser to carry out. */
+export interface AssistantAction {
+  id: string;
+  type: AssistantActionType;
+  label: string;
+  params: Record<string, unknown>;
+  needs_confirmation: boolean;
+  confirmation_prompt?: string;
+}
+
+export type AssistantActionType =
+  | "navigate"
+  | "set_horizon"
+  | "select_iceberg"
+  | "select_route"
+  | "mark_alerts_read"
+  | "refresh_data"
+  | "start_journey"
+  | "advance_journey"
+  | "recalculate_route"
+  | "pause_journey"
+  | "resume_journey";
+
 export interface AssistantChatRequest {
   question: string;
   history: AssistantMessage[];
   horizon_hours?: number;
-  dashboard?: {
-    start_lat?: number;
-    start_lon?: number;
-    dest_lat?: number;
-    dest_lon?: number;
-    vessel_id?: string;
-    preference?: string;
-  };
+  dashboard?: AssistantDashboardContext;
+  /** Set on the turn after the user clicks Confirm. */
+  confirm_action_id?: string;
+  /** Set on the turn after the user clicks Cancel. */
+  denied_action_ids?: string[];
+}
+
+export interface AssistantActionResultRequest {
+  action_id: string;
+  type: string;
+  success: boolean;
+  message?: string;
 }
 
 export interface AssistantContextSource {
@@ -463,6 +578,8 @@ export interface AssistantChatResponse {
   };
   demo_mode: boolean;
   warnings: string[];
+  actions: AssistantAction[];
+  knowledge_used: string[];
 }
 
 export interface PortInfo {

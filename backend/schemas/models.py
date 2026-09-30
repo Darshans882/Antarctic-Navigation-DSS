@@ -431,19 +431,121 @@ class AssistantMessage(BaseModel):
     content: str
 
 
+class AssistantAlertContext(BaseModel):
+    title: str = Field(max_length=160)
+    message: str = Field(max_length=500)
+    type: str = Field(max_length=40)
+    severity: str = Field(max_length=40)
+    reason: str | None = Field(default=None, max_length=500)
+    recommended_action: str | None = Field(default=None, max_length=300)
+    selected_route_label: str | None = Field(default=None, max_length=160)
+    iceberg_id: str | None = Field(default=None, max_length=40)
+    distance_km: float | None = None
+    read: bool | None = None
+    timestamp: str | None = Field(default=None, max_length=40)
+    latitude: float | None = None
+    longitude: float | None = None
+
+
+class AssistantRouteSummary(BaseModel):
+    """Compact route record. The full RouteResult stays in the browser."""
+
+    label: str = Field(max_length=80)
+    distance_km: float | None = None
+    distance_nm: float | None = None
+    travel_time_hours: float | None = None
+    fuel_tons: float | None = None
+    risk_score: float | None = None
+    risk_level: str | None = Field(default=None, max_length=40)
+    waypoint_count: int | None = None
+    is_recommended: bool = False
+
+
+class AssistantJourneyContext(BaseModel):
+    """State of the live voyage held by the browser's journey simulator."""
+
+    journey_id: str | None = Field(default=None, max_length=80)
+    origin: str | None = Field(default=None, max_length=80)
+    destination: str | None = Field(default=None, max_length=80)
+    journey_mode: str | None = Field(default=None, max_length=20)
+    status: Literal["not_started", "active", "complete"] = "not_started"
+    total_distance_nm: float | None = None
+    total_fuel_tons: float | None = None
+    estimated_duration_hours: float | None = None
+    max_risk_level: str | None = Field(default=None, max_length=40)
+    route_update_count: int | None = None
+    vessel_lat: float | None = None
+    vessel_lon: float | None = None
+    current_time_hours: float | None = None
+    progress_percent: float | None = None
+    remaining_distance_nm: float | None = None
+    remaining_fuel_tons: float | None = None
+    is_complete: bool | None = None
+
+
+class AssistantNavigationContext(BaseModel):
+    """Everything the Navigation Dashboard currently holds."""
+
+    port_id: str | None = Field(default=None, max_length=60)
+    center_id: str | None = Field(default=None, max_length=60)
+    vessel_id: str | None = Field(default=None, max_length=60)
+    journey_mode: str | None = Field(default=None, max_length=20)
+    live_lat: str | None = Field(default=None, max_length=20)
+    live_lon: str | None = Field(default=None, max_length=20)
+    route_id: str | None = Field(default=None, max_length=80)
+    destination_name: str | None = Field(default=None, max_length=120)
+    selected_route: AssistantRouteSummary | None = None
+    routes_available: list[AssistantRouteSummary] = Field(default_factory=list, max_length=10)
+    journey: AssistantJourneyContext | None = None
+    # What the simulation config says the time step is, so the assistant can
+    # say what "advance" will do without guessing.
+    time_step_hours: float | None = None
+
+
+class AssistantVesselContext(BaseModel):
+    vessel_id: str | None = Field(default=None, max_length=60)
+    name: str | None = Field(default=None, max_length=120)
+    lat: float | None = None
+    lon: float | None = None
+    heading_deg: float | None = None
+    speed_knots: float | None = None
+    speed_known: bool = False
+
+
 class DashboardState(BaseModel):
+    """Live application state, sent by the browser with every question.
+
+    Only the state the backend cannot look up for itself is sent here: UI
+    selections, the journey simulator's in-memory voyage, and the alert log
+    (alerts are derived in the browser, not stored by the API).
+    """
+
     start_lat: float | None = None
     start_lon: float | None = None
     dest_lat: float | None = None
     dest_lon: float | None = None
     vessel_id: str | None = None
     preference: str | None = None
+    page: str | None = Field(default=None, max_length=40)
+    # Horizon the Sea-Ice Forecast page is currently showing.
+    sea_ice_horizon: int | None = Field(default=None, ge=2, le=168)
+    # Iceberg the Iceberg Tracking page has selected.
+    selected_iceberg_id: str | None = Field(default=None, max_length=40)
+    navigation: AssistantNavigationContext | None = None
+    vessel: AssistantVesselContext | None = None
+    alert_context: list[AssistantAlertContext] = Field(default_factory=list, max_length=20)
+    unread_alert_count: int | None = Field(default=None, ge=0)
+
 
 class AssistantChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     history: list[AssistantMessage] = Field(default_factory=list, max_length=30)
     horizon_hours: int = Field(default=24, ge=2, le=168)
     dashboard: DashboardState | None = None
+    # Set when the user clicks Confirm on a consequential action the assistant
+    # proposed in the previous turn.
+    confirm_action_id: str | None = Field(default=None, max_length=60)
+    denied_action_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
 class AssistantContextSource(BaseModel):
@@ -451,6 +553,19 @@ class AssistantContextSource(BaseModel):
     demo: bool
     note: str | None = None
     status: str = "ok"
+
+
+class AssistantAction(BaseModel):
+    """An instruction for the browser to carry out on the user's behalf."""
+
+    id: str
+    type: str
+    label: str
+    params: dict[str, object] = Field(default_factory=dict)
+    # True when the assistant is asking permission first.
+    needs_confirmation: bool = False
+    # Human-readable question shown on the Confirm/Cancel buttons.
+    confirmation_prompt: str | None = None
 
 
 class AssistantChatResponse(BaseModel):
@@ -461,3 +576,15 @@ class AssistantChatResponse(BaseModel):
     )
     demo_mode: bool
     warnings: list[str] = Field(default_factory=list)
+    actions: list[AssistantAction] = Field(default_factory=list)
+    # Knowledge/documentation blocks used for this answer, for traceability.
+    knowledge_used: list[str] = Field(default_factory=list)
+
+
+class AssistantActionResultRequest(BaseModel):
+    """What actually happened when the browser ran an action."""
+
+    action_id: str
+    type: str
+    success: bool
+    message: str = Field(default="", max_length=500)

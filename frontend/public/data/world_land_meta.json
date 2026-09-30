@@ -1,0 +1,15 @@
+{
+  "step_deg": 0.1,
+  "lat_start": -85.04887122000002,
+  "lat_end": 85.05112878,
+  "n_lat": 1702,
+  "lon_start": -180.0,
+  "lon_end": 180.0,
+  "n_lon": 3601,
+  "row_order": "north_to_south",
+  "bits_per_cell": 1,
+  "bitorder": "msb_first",
+  "land_cells": 1975433,
+  "total_cells": 6128902,
+  "source": "Natural Earth 110m land (public domain)"
+}

@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse
 from config import settings
 from database.database import init_db
 
-from api import analytics, assistant, datasets, health, icebergs, models, routes, sea_ice, vessels
+from api import analytics, assistant, datasets, health, icebergs, models, routes, sea_ice, sea_ice_intelligence, vessels
 from app.routes import config_routes, navigation_routes, vessel_routes
 
 logging.basicConfig(
@@ -82,6 +82,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(health.system_router, prefix="/api")
 app.include_router(datasets.router, prefix="/api")
 app.include_router(sea_ice.router, prefix="/api")
+app.include_router(sea_ice_intelligence.router, prefix="/api")
 app.include_router(icebergs.router, prefix="/api")
 app.include_router(routes.router, prefix="/api")
 app.include_router(vessels.router, prefix="/api")
