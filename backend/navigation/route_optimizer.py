@@ -120,20 +120,38 @@ class RouteOptimizer:
         eff_distance = distance_weight
 
         if avoid_coordinates and len(avoid_coordinates) > 2:
-            cost = cost.copy()
-            # Penalize primary route corridor in the open-ocean segment (north of -56°S)
-            # so the alternative route establishes a distinct corridor (e.g. western corridor)
-            # and then converges naturally towards the navigable polar leads.
-            for lat, lon in avoid_coordinates:
-                if lat > -56.0:
+            ocean_indices = [i for i, (lat, lon) in enumerate(avoid_coordinates) if lat > -54.0]
+            if ocean_indices and ocean_indices[-1] < len(avoid_coordinates) - 1:
+                merge_idx = ocean_indices[-1] + 1
+                merge_lat, merge_lon = avoid_coordinates[merge_idx]
+
+                cost = cost.copy()
+                east_bound = avoid_coordinates[-1][1] >= avoid_coordinates[0][1]
+                dj_range = range(-1, 5) if east_bound else range(-4, 2)
+                for i in range(1, merge_idx):
+                    lat, lon = avoid_coordinates[i]
                     c = self.grid.cell_for(lat, lon)
                     for di in range(-2, 3):
-                        for dj in range(-2, 3):
+                        for dj in dj_range:
                             ni, nj = c.lat_index + di, c.lon_index + dj
                             if 0 <= ni < self.grid.nlat and 0 <= nj < self.grid.nlon:
-                                dist = (di * di + dj * dj) ** 0.5
-                                if dist <= 2.5:
-                                    cost[ni, nj] += max(0.0, 0.40 * (1.0 - dist / 2.8))
+                                cost[ni, nj] += 0.50
+
+                planner = AStarPlanner(
+                    lats=self.grid.lats,
+                    lons=self.grid.lons,
+                    cost=cost,
+                    obstacles=obstacles,
+                    safety_weight=max(0.85, safety_weight),
+                    distance_weight=min(0.15, distance_weight),
+                    max_cost=self.risk_engine.config.max_risk_ratio,
+                )
+                try:
+                    ocean_cells = planner.plan(start_lat, start_lon, merge_lat, merge_lon)
+                    ocean_coords = planner.coordinates_from_cells(ocean_cells)
+                    return ocean_coords + avoid_coordinates[merge_idx + 1:]
+                except Exception:
+                    pass
 
             eff_safety = max(0.85, safety_weight)
             eff_distance = min(0.15, distance_weight)
