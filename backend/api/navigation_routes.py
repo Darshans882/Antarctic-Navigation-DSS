@@ -168,6 +168,7 @@ def optimize_route(request: RouteOptimizationRequest) -> RouteOptimizationRespon
         goal_lon,
         excluded=preference,
         max_results=2,
+        primary_coordinates=recommended["coordinates"],
     ):
         if alternative is None:
             warnings.append(

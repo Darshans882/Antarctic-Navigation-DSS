@@ -112,15 +112,39 @@ class RouteOptimizer:
         goal_lon: float,
         safety_weight: float,
         distance_weight: float,
+        avoid_coordinates: list[tuple[float, float]] | None = None,
     ) -> list[tuple[float, float]]:
         obstacles = self.risk_engine.obstacle_mask()
+        cost = self.risk_engine.total_risk
+        eff_safety = safety_weight
+        eff_distance = distance_weight
+
+        if avoid_coordinates and len(avoid_coordinates) > 2:
+            cost = cost.copy()
+            # Penalize primary route corridor in the open-ocean segment (north of -56°S)
+            # so the alternative route establishes a distinct corridor (e.g. western corridor)
+            # and then converges naturally towards the navigable polar leads.
+            for lat, lon in avoid_coordinates:
+                if lat > -56.0:
+                    c = self.grid.cell_for(lat, lon)
+                    for di in range(-2, 3):
+                        for dj in range(-2, 3):
+                            ni, nj = c.lat_index + di, c.lon_index + dj
+                            if 0 <= ni < self.grid.nlat and 0 <= nj < self.grid.nlon:
+                                dist = (di * di + dj * dj) ** 0.5
+                                if dist <= 2.5:
+                                    cost[ni, nj] += max(0.0, 0.40 * (1.0 - dist / 2.8))
+
+            eff_safety = max(0.85, safety_weight)
+            eff_distance = min(0.15, distance_weight)
+
         planner = AStarPlanner(
             lats=self.grid.lats,
             lons=self.grid.lons,
-            cost=self.risk_engine.total_risk,
+            cost=cost,
             obstacles=obstacles,
-            safety_weight=safety_weight,
-            distance_weight=distance_weight,
+            safety_weight=eff_safety,
+            distance_weight=eff_distance,
             max_cost=self.risk_engine.config.max_risk_ratio,
         )
         cells = planner.plan(start_lat, start_lon, goal_lat, goal_lon)
@@ -260,10 +284,19 @@ class RouteOptimizer:
         goal_lat: float,
         goal_lon: float,
         preference: str = "recommended",
+        avoid_coordinates: list[tuple[float, float]] | None = None,
     ) -> dict[str, Any]:
         """Generate a route using the weight combination for ``preference``."""
         safety, distance = self._weights_for(preference)
-        coordinates = self._plan(start_lat, start_lon, goal_lat, goal_lon, safety, distance)
+        coordinates = self._plan(
+            start_lat,
+            start_lon,
+            goal_lat,
+            goal_lon,
+            safety,
+            distance,
+            avoid_coordinates=avoid_coordinates,
+        )
         return self._build_route(coordinates, preference, self._source_label(safety, distance))
 
     def optimize_preference_list(self) -> list[str]:
@@ -278,6 +311,7 @@ class RouteOptimizer:
         goal_lon: float,
         excluded: str | None = None,
         max_results: int = 2,
+        primary_coordinates: list[tuple[float, float]] | None = None,
     ) -> list[dict[str, Any] | None]:
         """Generate a small, bounded set of alternative routes.
 
@@ -292,7 +326,14 @@ class RouteOptimizer:
                 continue
             try:
                 results.append(
-                    self.optimize(start_lat, start_lon, goal_lat, goal_lon, preference)
+                    self.optimize(
+                        start_lat,
+                        start_lon,
+                        goal_lat,
+                        goal_lon,
+                        preference,
+                        avoid_coordinates=primary_coordinates,
+                    )
                 )
             except NoPathFoundError:
                 results.append(None)
