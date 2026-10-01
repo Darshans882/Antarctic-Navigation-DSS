@@ -514,15 +514,17 @@ export function NavigationPlannerPage() {
 
       await fetchStatus(j.journey_id);
 
+      const destLat = mode === "return" ? port.latitude : center.latitude;
+      const destLon = mode === "return" ? port.longitude : center.longitude;
       await fetchAlternatives(
 
         liveStartLat,
 
         liveStartLon,
 
-        center.latitude,
+        destLat,
 
-        center.longitude,
+        destLon,
 
         vesselId,
 
@@ -590,15 +592,17 @@ export function NavigationPlannerPage() {
 
       await fetchStatus(j.journey_id);
 
+      const destLat = mode === "return" ? port?.latitude : center?.latitude;
+      const destLon = mode === "return" ? port?.longitude : center?.longitude;
       await fetchAlternatives(
 
         liveLat,
 
         liveLon,
 
-        center?.latitude ?? j.current_vessel_lat,
+        destLat ?? j.current_vessel_lat,
 
-        center?.longitude ?? j.current_vessel_lon,
+        destLon ?? j.current_vessel_lon,
 
         vesselId,
 
@@ -628,7 +632,7 @@ export function NavigationPlannerPage() {
 
     }
 
-  }, [journey, center, vesselId, planning, fetchStatus, fetchAlternatives, toast]);
+  }, [journey, mode, port, center, vesselId, planning, fetchStatus, fetchAlternatives, toast]);
 
 
 
@@ -666,15 +670,17 @@ export function NavigationPlannerPage() {
 
       setNavigation({ liveLat: String(fallbackLat), liveLon: String(fallbackLon) });
 
+      const destLat = mode === "return" ? port?.latitude : center?.latitude;
+      const destLon = mode === "return" ? port?.longitude : center?.longitude;
       await fetchAlternatives(
 
         fallbackLat,
 
         fallbackLon,
 
-        center?.latitude ?? journey.current_vessel_lat,
+        destLat ?? journey.current_vessel_lat,
 
-        center?.longitude ?? journey.current_vessel_lon,
+        destLon ?? journey.current_vessel_lon,
 
         vesselId,
 
@@ -714,15 +720,17 @@ export function NavigationPlannerPage() {
 
       await fetchStatus(j.journey_id);
 
+      const destLat = mode === "return" ? port?.latitude : center?.latitude;
+      const destLon = mode === "return" ? port?.longitude : center?.longitude;
       await fetchAlternatives(
 
         lat,
 
         lon,
 
-        center?.latitude ?? j.current_vessel_lat,
+        destLat ?? j.current_vessel_lat,
 
-        center?.longitude ?? j.current_vessel_lon,
+        destLon ?? j.current_vessel_lon,
 
         vesselId,
 
@@ -752,7 +760,7 @@ export function NavigationPlannerPage() {
 
     }
 
-  }, [journey, liveLat, liveLon, center, vesselId, planning, fetchStatus, fetchAlternatives, toast]);
+  }, [journey, liveLat, liveLon, mode, port, center, vesselId, planning, fetchStatus, fetchAlternatives, toast]);
 
 
 
@@ -1459,12 +1467,16 @@ export function NavigationPlannerPage() {
 
                 vesselLabel={vessel?.name ?? "Vessel"}
 
-                startPoint={port ? { name: port.name, lat: port.latitude, lon: port.longitude } : null}
+                startPoint={
+                  mode === "return" 
+                    ? (center ? { name: center.name, lat: center.latitude, lon: center.longitude } : null)
+                    : (port ? { name: port.name, lat: port.latitude, lon: port.longitude } : null)
+                }
 
                 endPoint={
-
-                  center ? { name: center.name, lat: center.latitude, lon: center.longitude } : null
-
+                  mode === "return"
+                    ? (port ? { name: port.name, lat: port.latitude, lon: port.longitude } : null)
+                    : (center ? { name: center.name, lat: center.latitude, lon: center.longitude } : null)
                 }
 
                 fitBounds={Boolean(journey)}

@@ -86,18 +86,25 @@ class IcebergRuntime:
                 tracks_path = Path(self._cfg["tracks_resolved"])
                 if not tracks_path.is_absolute():
                     tracks_path = BACKEND_DIR / tracks_path
-                if not tracks_path.is_file():
-                    packaged_tracks = REAL_FEATURE_TABLE if REAL_FEATURE_TABLE.exists() else FEATURE_TABLE
-                    if packaged_tracks.is_file():
+                candidates = [
+                    tracks_path,
+                    REAL_FEATURE_TABLE,
+                    FEATURE_TABLE,
+                    BACKEND_DIR.parents[0] / "Real data" / "processed" / "iceberg" / "csv" / "iceberg_processed.csv",
+                    BACKEND_DIR / "data" / "processed" / "features" / "iceberg_processed.csv",
+                ]
+                found = next((c for c in candidates if c is not None and Path(c).is_file()), None)
+                if found:
+                    if found != tracks_path:
                         LOG.warning(
-                            "Ignoring unavailable recorded track path %s; using packaged feature table %s",
+                            "Ignoring unavailable recorded track path %s; using available track table %s",
                             tracks_path,
-                            packaged_tracks,
+                            found,
                         )
-                        tracks_path = packaged_tracks
-                    else:
-                        self.error = f"No feature-table tracks available for '{self.model_kind}'."
-                        return
+                    tracks_path = found
+                else:
+                    self.error = f"No feature-table tracks available for '{self.model_kind}'."
+                    return
                 tracks = pd.read_csv(tracks_path, parse_dates=["timestamp"])
                 self._custom_tracks = tracks.sort_values(["iceberg_id", "timestamp"])
                 self.available = True
@@ -110,9 +117,15 @@ class IcebergRuntime:
 
             import joblib
 
-            preferred_tracks = REAL_FEATURE_TABLE if REAL_FEATURE_TABLE.exists() else FEATURE_TABLE
-            tracks = preferred_tracks if preferred_tracks.exists() else self._cfg.get("tracks_resolved")
-            if not tracks or not str(tracks).endswith(".csv"):
+            candidates = [
+                REAL_FEATURE_TABLE,
+                FEATURE_TABLE,
+                BACKEND_DIR.parents[0] / "Real data" / "processed" / "iceberg" / "csv" / "iceberg_processed.csv",
+                BACKEND_DIR / "data" / "processed" / "features" / "iceberg_processed.csv",
+            ]
+            preferred_tracks = next((c for c in candidates if c is not None and Path(c).is_file()), None)
+            tracks = preferred_tracks if preferred_tracks else self._cfg.get("tracks_resolved")
+            if not tracks or not str(tracks).endswith(".csv") or not Path(tracks).is_file():
                 self.error = "No feature-table tracks available for the trained model."
                 return
 

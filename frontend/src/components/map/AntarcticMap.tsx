@@ -369,7 +369,7 @@ function TrajectoryLayer({ trajectory }: { trajectory: IcebergTrajectoryResponse
       {obs.length > 1 && (
         <Polyline
           positions={obs}
-          pathOptions={{ color: "#6d28d9", weight: 3, opacity: 0.9 }}
+          pathOptions={{ color: "#2563eb", weight: 3, opacity: 0.9 }}
         />
       )}
       {connectedPrediction.length > 1 && (
@@ -389,8 +389,8 @@ function TrajectoryLayer({ trajectory }: { trajectory: IcebergTrajectoryResponse
           center={p}
           radius={i < obs.length ? 3 : 4}
           pathOptions={{
-            color: i < obs.length ? "#6d28d9" : "#f59e0b",
-            fillColor: i < obs.length ? "#6d28d9" : "#f59e0b",
+            color: i < obs.length ? "#2563eb" : "#f59e0b",
+            fillColor: i < obs.length ? "#2563eb" : "#f59e0b",
             fillOpacity: 1,
             weight: 0,
           }}
@@ -774,9 +774,22 @@ export function AntarcticMap(props: AntarcticMapProps) {
           />
         )}
 
-        {/* The planner ends at a safe ocean approach cell when a station is
-         * on land. Show that final station approach separately so the route
+        {/* The planner starts/ends at a safe ocean approach cell when a location is
+         * on land. Show that approach separately so the route
          * remains visibly connected without presenting land as navigable. */}
+        {recommended && recommended.coordinates.length > 0 && startPoint && (
+          <Polyline
+            positions={[[startPoint.lat, startPoint.lon], recommended.coordinates[0]]}
+            pathOptions={{
+              color: "#f59e0b",
+              weight: 3,
+              opacity: 0.9,
+              dashArray: "7 6",
+              lineCap: "round",
+            }}
+          />
+        )}
+
         {recommended && recommended.coordinates.length > 0 && endPoint && (
           <Polyline
             positions={[recommended.coordinates[recommended.coordinates.length - 1], [endPoint.lat, endPoint.lon]]}

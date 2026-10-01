@@ -110,13 +110,11 @@ export function IcebergTrackingPage() {
     try {
 
       const [det, traj, dist] = await Promise.all([
-
         api.icebergDetail(id),
-
         api.icebergTrajectory(id),
-
-        fromId && id !== fromId ? api.icebergDistance(fromId, id) : Promise.resolve(null),
-
+        fromId && id !== fromId
+          ? api.icebergDistance(fromId, id).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       setSelected(det);
@@ -504,7 +502,7 @@ export function IcebergTrackingPage() {
 
                 <span className="flex items-center gap-1">
 
-                  <span className="w-3 h-1.5 bg-indigo-500 inline-block rounded" /> Historical
+                  <span className="w-3 h-1.5 bg-blue-600 inline-block rounded" /> Historical
 
                 </span>
 

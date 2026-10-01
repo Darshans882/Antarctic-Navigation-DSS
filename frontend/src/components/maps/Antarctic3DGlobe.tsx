@@ -303,7 +303,7 @@ export const Antarctic3DGlobe = forwardRef<GlobeMapRef, Antarctic3DGlobeProps>((
       p.longitude,
     ]);
     if (obs.length > 1) {
-      paths.push({ points: obs, color: "#0b3d6e", dash: 0, stroke: 2 });
+      paths.push({ points: obs, color: "#2563eb", dash: 0, stroke: 2.5 });
     }
     const connectedPrediction = obs.length > 0 ? [obs[obs.length - 1], ...pred] : pred;
     if (connectedPrediction.length > 1) {

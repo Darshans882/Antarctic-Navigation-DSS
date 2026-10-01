@@ -231,28 +231,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const spokenMessage = message.replace(/route/gi, "root");
           const utterance = new SpeechSynthesisUtterance(spokenMessage);
           
-          utterance.onend = () => resolve();
-          utterance.onerror = () => resolve();
+          // Keep a reference to prevent garbage collection (Chrome bug workaround)
+          (window as any)._currentUtterance = utterance;
           
-          const voices = window.speechSynthesis.getVoices();
-          if (voices.length > 0) {
-            // Look for Indian accented voices first, then fall back to clear voices
-            const clearVoice = 
-              voices.find(v => (v.lang === "en-IN" || v.name.includes("India") || v.name.includes("Indian")) && (v.name.includes("Natural") || v.name.includes("Online (Natural)"))) ||
-              voices.find(v => v.lang === "en-IN" || v.name.includes("India") || v.name.includes("Indian")) ||
-              voices.find(v => v.lang.startsWith("en") && (v.name.includes("Natural") || v.name.includes("Online (Natural)"))) ||
-              voices.find(v => v.lang.startsWith("en") && (v.name.includes("Premium") || v.name.includes("Google"))) ||
-              voices.find(v => v.lang.startsWith("en") && v.name.includes("Female")) ||
-              voices.find(v => v.lang.startsWith("en"));
-              
-            if (clearVoice) {
-              utterance.voice = clearVoice;
+          utterance.onend = () => resolve();
+          utterance.onerror = (e) => {
+            console.error("SpeechSynthesis error:", e);
+            resolve();
+          };
+          
+          const playSpeech = () => {
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+              // Look for Indian accented voices first, then fall back to clear voices
+              const clearVoice = 
+                voices.find(v => (v.lang === "en-IN" || v.name.includes("India") || v.name.includes("Indian")) && (v.name.includes("Natural") || v.name.includes("Online (Natural)"))) ||
+                voices.find(v => v.lang === "en-IN" || v.name.includes("India") || v.name.includes("Indian")) ||
+                voices.find(v => v.lang.startsWith("en") && (v.name.includes("Natural") || v.name.includes("Online (Natural)"))) ||
+                voices.find(v => v.lang.startsWith("en") && (v.name.includes("Premium") || v.name.includes("Google"))) ||
+                voices.find(v => v.lang.startsWith("en") && v.name.includes("Female")) ||
+                voices.find(v => v.lang.startsWith("en"));
+                
+              if (clearVoice) {
+                utterance.voice = clearVoice;
+              }
             }
-          }
 
-          utterance.rate = 0.75;
-          utterance.pitch = 1.0;
-          window.speechSynthesis.speak(utterance);
+            utterance.rate = 0.75;
+            utterance.pitch = 1.0;
+            window.speechSynthesis.speak(utterance);
+          };
+
+          if (cancelPrevious) {
+            // Slight delay after cancel() is required by some browsers to prevent the new speech from also being cancelled
+            setTimeout(playSpeech, 50);
+          } else {
+            playSpeech();
+          }
         } else {
           resolve();
         }

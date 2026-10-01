@@ -81,14 +81,40 @@ class IcebergService:
             self._warning = self._cache[0].get("demo_notice") if self._cache and self._demo else None
         return self._cache
 
+    def _find_feature_table_path(self) -> Path | None:
+        candidates = [
+            REAL_FEATURE_TABLE,
+            FEATURE_TABLE,
+            ICEBERG_CSV if isinstance(ICEBERG_CSV, Path) and ICEBERG_CSV.is_file() else None,
+            Path(self._loader.data_path) if getattr(self, "_loader", None) and getattr(self._loader, "data_path", None) and Path(self._loader.data_path).is_file() else None,
+            BACKEND_DIR.parents[0] / "Real data" / "processed" / "iceberg" / "csv" / "iceberg_processed.csv",
+            BACKEND_DIR / "data" / "processed" / "features" / "iceberg_processed.csv",
+        ]
+        for p in candidates:
+            if p is not None and Path(p).is_file():
+                return Path(p)
+
+        proc_csv_dir = BACKEND_DIR.parents[0] / "Real data" / "processed" / "iceberg" / "csv"
+        if proc_csv_dir.is_dir():
+            csvs = sorted(proc_csv_dir.glob("*.csv"))
+            if csvs:
+                return csvs[0]
+        return None
+
     def _feature_table(self) -> pd.DataFrame:
         if self._feature_cache is None:
-            table_path = REAL_FEATURE_TABLE if REAL_FEATURE_TABLE.exists() else FEATURE_TABLE
-            if table_path.exists():
-                df = pd.read_csv(table_path)
-                df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-                self._feature_cache = df.sort_values(["iceberg_id", "timestamp"]).reset_index(drop=True)
+            table_path = self._find_feature_table_path()
+            if table_path and table_path.exists():
+                try:
+                    df = pd.read_csv(table_path)
+                    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+                    self._feature_cache = df.sort_values(["iceberg_id", "timestamp"]).reset_index(drop=True)
+                    logger.info("Loaded iceberg observations from %s (%d rows)", table_path, len(self._feature_cache))
+                except Exception as exc:
+                    logger.warning("Could not read iceberg table at %s: %s", table_path, exc)
+                    self._feature_cache = pd.DataFrame()
             else:
+                logger.warning("No iceberg feature table or historical CSV found; checked %s, %s, %s", REAL_FEATURE_TABLE, FEATURE_TABLE, ICEBERG_CSV)
                 self._feature_cache = pd.DataFrame()
         return self._feature_cache
 

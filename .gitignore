@@ -29,7 +29,8 @@ backend/datasets/imports/*.csv
 !backend/datasets/imports/.gitkeep
 backend/datasets/reports/*.json
 # Preprocessing outputs (large ML-ready data + reports)
-backend/data/processed/
+backend/data/processed/*
+!backend/data/processed/features/
 backend/data/reports/
 
 # Trained ML artifacts (models, checkpoints, scalers, predictions)
