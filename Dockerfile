@@ -28,6 +28,14 @@ RUN cat /tmp/deploy-assets/runtime-data.tar.gz.part-* > /tmp/runtime-data.tar.gz
     && tar -xzf /tmp/runtime-data.tar.gz -C "/app/Real data/processed" \
     && rm -rf /tmp/deploy-assets /tmp/runtime-data.tar.gz
 
+COPY scripts /app/scripts
+RUN mkdir -p "/app/backend/data/processed/features" \
+    && if [ -f "/app/Real data/processed/iceberg/csv/iceberg_processed.csv" ]; then \
+        cp "/app/Real data/processed/iceberg/csv/iceberg_processed.csv" "/app/backend/data/processed/features/feature_table.csv" 2>/dev/null || true; \
+        cp "/app/Real data/processed/iceberg/csv/iceberg_processed.csv" "/app/backend/data/processed/features/iceberg_processed.csv" 2>/dev/null || true; \
+       fi \
+    && python3 /app/scripts/import_real_csv_to_database.py || true
+
 WORKDIR /app/backend
 EXPOSE 8000
 

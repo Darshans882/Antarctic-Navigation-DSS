@@ -42,6 +42,9 @@ def _land_from_elevation(lat, lon, elevation) -> np.ndarray:
     return np.where(np.isfinite(elev), elev >= 0, False)
 
 
+_LOADED_MASKS: dict[tuple[int, int, str], tuple[np.ndarray, dict[str, Any]]] = {}
+
+
 def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Load and regrid a land mask onto ``grid``.
 
@@ -55,7 +58,61 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
             "reason": "LAND_MASK_FILE is not set; the grid is treated as open water.",
         }
 
+    cache_key = (grid.nlat, grid.nlon, str(path))
+    if cache_key in _LOADED_MASKS:
+        return _LOADED_MASKS[cache_key]
+
     full = Path(path)
+
+    # Fast path: check for pre-aligned .npy file (either next to json or in bundled config)
+    cfg_dir = Path(__file__).resolve().parents[1] / "app" / "data" / "config"
+    npy_candidates = [
+        cfg_dir / f"land_mask_nav_{grid.nlat}_{grid.nlon}.npy",
+        cfg_dir / f"land_mask_def_{grid.nlat}_{grid.nlon}.npy",
+        full if full.suffix.lower() == ".npy" else full.with_suffix(".npy"),
+        cfg_dir / "land_ocean_mask.npy",
+    ]
+    for npy_path in npy_candidates:
+        if npy_path.is_file():
+            try:
+                mask = np.load(npy_path)
+                mask = np.asarray(mask, dtype=bool)
+                if mask.shape == (grid.nlat, grid.nlon):
+                    info = {
+                        "loaded": True,
+                        "file": str(npy_path),
+                        "format": "npy",
+                        "land_cells": int(mask.sum()),
+                        "land_fraction": float(mask.mean()),
+                    }
+                    _LOADED_MASKS[cache_key] = (mask, info)
+                    return mask, info
+            except Exception:
+                pass
+
+    # Fast path 2: check for compressed .npz representation (instant resampling to any grid shape)
+    npz_path = cfg_dir / "land_ocean_mask.npz"
+    if npz_path.is_file():
+        try:
+            with np.load(npz_path) as z:
+                lat_arr = z["lat_arr"]
+                lon_arr = z["lon_arr"]
+                land = z["land"]
+            lat_idx = np.array([int(np.argmin(np.abs(lat_arr - lat))) for lat in grid.lats])
+            lon_idx = np.array([int(np.argmin(np.abs(lon_arr - lon))) for lon in grid.lons])
+            mask = land[np.ix_(lat_idx, lon_idx)]
+            info = {
+                "loaded": True,
+                "file": str(npz_path),
+                "format": "npz",
+                "land_cells": int(mask.sum()),
+                "land_fraction": float(mask.mean()),
+            }
+            _LOADED_MASKS[cache_key] = (mask, info)
+            return mask, info
+        except Exception:
+            pass
+
     if not full.exists():
         return None, {
             "loaded": False,
@@ -83,6 +140,7 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
                 "land_cells": int(mask.sum()),
                 "land_fraction": float(mask.mean()),
             }
+            _LOADED_MASKS[cache_key] = (masked, info)
             return masked, info
         elif suffix in (".tif", ".tiff"):
             import rasterio
@@ -152,4 +210,11 @@ def load_land_mask(grid: AntarcticGrid, path: str | None) -> tuple[np.ndarray | 
         "land_cells": int(mask.sum()),
         "land_fraction": float(mask.mean()),
     }
+    try:
+        save_path = full.with_suffix(".npy")
+        if not save_path.is_file():
+            np.save(str(save_path), mask)
+    except Exception:
+        pass
+    _LOADED_MASKS[cache_key] = (mask, info)
     return mask, info

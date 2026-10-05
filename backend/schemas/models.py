@@ -234,6 +234,7 @@ class RouteOptimizationPreference(str, Enum):
     shortest = "shortest"
     safest = "safest"
     fuel_efficient = "fuel_efficient"
+    balanced = "balanced"
 
 
 class RouteOptimizationRequest(BaseModel):

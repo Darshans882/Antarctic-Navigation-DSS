@@ -29,6 +29,7 @@ from config import settings
 SAMPLE_DIR = Path(__file__).resolve().parents[2] / "data" / "sample"
 PIPELINE_PROCESSED = Path(__file__).resolve().parents[2] / "datasets" / "processed" / "sea_ice.nc"
 REAL_CSV_DIR = Path(__file__).resolve().parents[4] / "Real data" / "processed" / "sea_ice" / "csv"
+BUNDLED_SEA_ICE_NPZ = Path(__file__).resolve().parents[2] / "data" / "config" / "sea_ice_latest.npz"
 
 
 class SeaIceDataError(Exception):
@@ -44,15 +45,23 @@ class SeaIceDataLoader:
     def load(self, timestamp: datetime | None = None) -> dict[str, Any]:
         """Load sea-ice concentration data.
 
-        Prefers the real processed CSV (newest time step), then the
-        pipeline-processed dataset, then an explicitly configured NetCDF.
-        Returns data tagged with provenance so callers can distinguish demo
-        from real sources. When ``DATA_MODE=real`` and no real data exists the
-        result is tagged ``unavailable`` (never synthetic).
+        Prefers the real processed NPZ/CSV (newest time step), then the
+        bundled real snapshot, then the pipeline-processed dataset.
         """
+        # 1. Fast path: check for pre-aligned .npz files in REAL_CSV_DIR
+        npz_path = self._real_npz()
+        if npz_path is not None:
+            return self._load_from_npz(npz_path)
+
+        # 2. Check for real processed CSV in REAL_CSV_DIR
         csv_path = self._real_csv()
         if csv_path is not None:
             return self._load_from_csv(csv_path)
+
+        # 3. Check for bundled real observation snapshot (tracked in git)
+        if BUNDLED_SEA_ICE_NPZ.is_file():
+            return self._load_from_npz(BUNDLED_SEA_ICE_NPZ)
+
         if settings.data_mode_real:
             return {
                 "source": None,
@@ -71,6 +80,13 @@ class SeaIceDataLoader:
             return self._load_from_netcdf(self.netcdf_path)
         return self._load_synthetic(timestamp)
 
+    def _real_npz(self) -> Path | None:
+        """The pre-computed compressed NPZ grid if present."""
+        if not REAL_CSV_DIR.is_dir():
+            return None
+        npz_files = sorted(REAL_CSV_DIR.glob("sea_ice_latest_part_*.npz"))
+        return npz_files[-1] if npz_files else None
+
     def _real_csv(self) -> Path | None:
         """The dedicated latest-snapshot CSV (full grid, newest timestep) if present,
         otherwise the newest time-partitioned file (may be partial for the newest date)."""
@@ -82,8 +98,29 @@ class SeaIceDataLoader:
         parts = sorted(REAL_CSV_DIR.glob("sea_ice_part_*.csv"))
         return parts[-1] if parts else None
 
+    def _load_from_npz(self, path: Path) -> dict[str, Any]:
+        """Load pre-aligned, compressed sea-ice grid from an NPZ file in milliseconds."""
+        try:
+            with np.load(path) as data:
+                grid = data["grid"]
+                lat = data["lat"]
+                lon = data["lon"]
+                ts = str(data["timestamp"])
+            return {
+                "source": "real_pipeline_npz",
+                "classification": "pipeline_data",
+                "path": str(path),
+                "lat": [float(v) for v in lat],
+                "lon": [float(v) for v in lon],
+                "sea_ice_concentration": grid.tolist(),
+                "timestamp_is_utc": True,
+                "timestamp": ts,
+            }
+        except Exception as exc:
+            raise SeaIceDataError(f"Failed to read sea-ice NPZ {path}: {exc}") from exc
+
     def _load_from_csv(self, path: Path) -> dict[str, Any]:
-        """Pivot the newest timestamp of a processed sea-ice CSV into a grid."""
+        """Pivot the newest timestamp of a processed sea-ice CSV into a grid with vectorized indexing."""
         try:
             columns = [
                 "timestamp", "latitude", "longitude",
@@ -120,12 +157,21 @@ class SeaIceDataLoader:
             raise SeaIceDataError(f"Sea-ice CSV {path} produced an empty grid")
 
         grid = np.full((len(lat_arr), len(lon_arr)), np.nan, dtype=float)
-        idx = {float(v): i for i, v in enumerate(lat_arr)}
-        jdx = {float(v): j for j, v in enumerate(lon_arr)}
-        for _, row in df.iterrows():
-            i = idx[float(row["latitude"])]
-            j = jdx[float(row["longitude"])]
-            grid[i, j] = float(row["sea_ice_concentration"])
+        lat_idx = np.searchsorted(lat_arr, df["latitude"].to_numpy(dtype=float))
+        lon_idx = np.searchsorted(lon_arr, df["longitude"].to_numpy(dtype=float))
+        grid[lat_idx, lon_idx] = df["sea_ice_concentration"].to_numpy(dtype=float)
+
+        # Cache compressed NPZ next to the CSV for instant subsequent loads
+        try:
+            np.savez_compressed(
+                path.with_suffix(".npz"),
+                grid=grid,
+                lat=lat_arr,
+                lon=lon_arr,
+                timestamp=str(latest_ts),
+            )
+        except Exception:
+            pass
 
         return {
             "source": "real_pipeline_csv",

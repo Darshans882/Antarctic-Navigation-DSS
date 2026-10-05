@@ -22,6 +22,7 @@ _PREFERENCE_WEIGHTS: dict[str, tuple[float, float]] = {
     "safest": (1.0, 0.0),
     "fuel_efficient": (0.3, 0.7),
     "alternative": (0.85, 0.15),
+    "balanced": None,
 }
 
 _PREFERENCE_ORDER = ("recommended", "shortest", "safest", "fuel_efficient")

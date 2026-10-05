@@ -45,8 +45,8 @@ def _runtime_status() -> dict[str, object]:
         runtime = get_runtime(configured_model)
         checkpoint = "rf.joblib" if configured_model == "random_forest" else "lstm.pt"
         model_available = (runtime.out_dir / checkpoint).is_file()
-    land_mask = settings.LAND_MASK_FILE or ""
-    land_mask_path = Path(land_mask)
+    resolved_mask = settings.resolved_land_mask_path
+    land_mask_ok = resolved_mask is not None and _file_available(resolved_mask)
     return {
         "backend": True,
         "demo_mode": False,
@@ -56,7 +56,7 @@ def _runtime_status() -> dict[str, object]:
         "weather_data": _file_available(Path(WEATHER_NETCDF)),
         "iceberg_data": iceberg_count > 0,
         "iceberg_records": iceberg_count,
-        "land_mask": _file_available(land_mask_path),
+        "land_mask": land_mask_ok,
         "iceberg_model": model_available,
         "route_engine": True,
     }

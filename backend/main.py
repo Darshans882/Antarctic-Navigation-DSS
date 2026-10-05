@@ -47,6 +47,17 @@ async def lifespan(_app: FastAPI):
         init_db()
     except Exception as exc:  # pragma: no cover - startup should remain resilient
         logger.exception("Startup DB init failed: %s", exc)
+
+    try:
+        from services.sea_ice_service import sea_ice_service
+        from navigation.grid import AntarcticGrid
+        from navigation.land_mask import load_land_mask
+        sea_ice_service.current()
+        load_land_mask(AntarcticGrid.from_config({}), settings.LAND_MASK_FILE)
+        logger.info("Pre-warmed sea-ice and land-mask data successfully")
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Data pre-warming notice: %s", exc)
+
     yield
     logger.info("Shutting down %s", settings.APP_NAME)
 
@@ -66,13 +77,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+is_wildcard_origin = settings.cors_origins_list == ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=settings.cors_origins_list != ["*"],
+    allow_origin_regex=None if is_wildcard_origin else r"https://.*\.vercel\.app",
+    allow_credentials=not is_wildcard_origin,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/", tags=["root"])
+async def root() -> dict[str, str]:
+    """Root endpoint for cloud ping and load-balancer probes."""
+    return {
+        "status": "ok",
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs": "/docs",
+        "api_health": "/api/health",
+    }
+
+
+@app.get("/health", tags=["root"])
+async def root_health() -> dict[str, str]:
+    """Root health probe for AWS Target Groups, ECS, ALBs, and proxies."""
+    return {
+        "status": "ok",
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+    }
+
 
 # ---------------------------------------------------------------------------
 # Route registration — order matters only inside /icebergs (static paths are

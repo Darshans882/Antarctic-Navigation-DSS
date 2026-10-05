@@ -18,8 +18,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 SYNTHETIC_DEMO = "synthetic_demo"
 PIPELINE_DATA = "pipeline_data"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_LAND_MASK_FILE = PROJECT_ROOT / "Real data" / "processed" / "bathymetry" / "land_ocean_mask.json"
-DEFAULT_PRODUCTION_FRONTEND_ORIGIN = "https://antarctic-navigation-dss.vercel.app"
+BACKEND_DIR = Path(__file__).resolve().parent
+BUNDLED_LAND_MASK_NPY = BACKEND_DIR / "app" / "data" / "config" / "land_ocean_mask.npy"
+_REAL_LAND_MASK_JSON = PROJECT_ROOT / "Real data" / "processed" / "bathymetry" / "land_ocean_mask.json"
+DEFAULT_LAND_MASK_FILE = BUNDLED_LAND_MASK_NPY if BUNDLED_LAND_MASK_NPY.is_file() else _REAL_LAND_MASK_JSON
+DEFAULT_PRODUCTION_FRONTEND_ORIGINS = [
+    "https://antarctic-navigation-dss.vercel.app",
+    "https://antarctic-navigation-frontend.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:4173",
+]
 
 DEMO_WARNING = (
     "DEMO MODE: these results are based on synthetic demo data used for "
@@ -124,9 +133,23 @@ class Settings(BaseSettings):
             return ["*"]
         if self.FRONTEND_URL and self.FRONTEND_URL.strip() not in origins:
             origins.append(self.FRONTEND_URL.strip().rstrip("/"))
-        if DEFAULT_PRODUCTION_FRONTEND_ORIGIN not in origins:
-            origins.append(DEFAULT_PRODUCTION_FRONTEND_ORIGIN)
+        for default_origin in DEFAULT_PRODUCTION_FRONTEND_ORIGINS:
+            if default_origin not in origins:
+                origins.append(default_origin)
         return origins
+
+    @property
+    def resolved_land_mask_path(self) -> Path | None:
+        """Resolve the active land mask, preferring pre-aligned fast NPY masks."""
+        if self.LAND_MASK_FILE:
+            p = Path(self.LAND_MASK_FILE)
+            if p.is_file():
+                return p
+        if BUNDLED_LAND_MASK_NPY.is_file():
+            return BUNDLED_LAND_MASK_NPY
+        if DEFAULT_LAND_MASK_FILE.is_file():
+            return DEFAULT_LAND_MASK_FILE
+        return None
 
     @property
     def demo_forced(self) -> bool:

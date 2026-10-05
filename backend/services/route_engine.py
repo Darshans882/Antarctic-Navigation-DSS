@@ -86,6 +86,8 @@ def _source_fingerprint() -> str:
         Path(__file__).resolve().parents[2] / "Real data" / "processed" / "iceberg" / "csv",
         Path(__file__).resolve().parents[1] / "data" / "processed" / "features" / "feature_table.csv",
         Path(__file__).resolve().parents[2] / "Real data" / "processed" / "weather" / "csv",
+        Path(__file__).resolve().parents[1] / "app" / "data" / "config" / "sea_ice_latest.npz",
+        Path(__file__).resolve().parents[1] / "app" / "data" / "config" / "land_ocean_mask.npy",
     ):
         _add(each)
     return "|".join(parts)

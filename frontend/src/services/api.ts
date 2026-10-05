@@ -27,7 +27,20 @@ import type {
   VesselsResponse,
 } from "../types";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const rawBase = (import.meta.env.VITE_API_BASE_URL ?? "").trim();
+const normalizedBase = rawBase.replace(/\/+$/, "").replace(/\/api$/, "");
+const isLocalBrowser =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "0.0.0.0");
+// On localhost, always use the Vite proxy (/api) unless an explicit localhost URL was provided
+const API_BASE_URL =
+  isLocalBrowser && normalizedBase && !normalizedBase.includes("localhost") && !normalizedBase.includes("127.0.0.1")
+    ? "/api"
+    : normalizedBase
+    ? `${normalizedBase}/api`
+    : "/api";
 
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
@@ -44,7 +57,7 @@ function memoizedRequest<T>(key: string, request: () => Promise<T>): Promise<T> 
 }
 
 const http = axios.create({
-  baseURL: `${API_BASE_URL ?? ""}/api`,
+  baseURL: API_BASE_URL,
   timeout: 30000,
   headers: { 
     "Content-Type": "application/json",
@@ -53,7 +66,7 @@ const http = axios.create({
 });
 
 const routeHttp = axios.create({
-  baseURL: `${API_BASE_URL ?? ""}/api`,
+  baseURL: API_BASE_URL,
   timeout: 120000,
   headers: { 
     "Content-Type": "application/json",
