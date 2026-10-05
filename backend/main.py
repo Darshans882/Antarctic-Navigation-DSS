@@ -50,11 +50,20 @@ async def lifespan(_app: FastAPI):
 
     try:
         from services.sea_ice_service import sea_ice_service
+        from services.navigation_service import navigation_service
         from navigation.grid import AntarcticGrid
         from navigation.land_mask import load_land_mask
         sea_ice_service.current()
         load_land_mask(AntarcticGrid.from_config({}), settings.LAND_MASK_FILE)
-        logger.info("Pre-warmed sea-ice and land-mask data successfully")
+        navigation_service.optimize(
+            start_lat=-54.8,
+            start_lon=-68.3,
+            dest_lat=-62.2,
+            dest_lon=-58.9,
+            vessel_id="polar_explorer",
+            preference="balanced",
+        )
+        logger.info("Pre-warmed sea-ice, land-mask, and route engine successfully")
     except Exception as exc:  # pragma: no cover
         logger.warning("Data pre-warming notice: %s", exc)
 

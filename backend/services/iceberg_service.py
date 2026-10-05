@@ -53,6 +53,13 @@ def _parse_ts(val: str | float | None) -> datetime | None:
         return None
 
 
+import copy
+import time
+
+_PREDICT_CACHE: dict[tuple[tuple[str, ...] | None, int, str], tuple[float, dict]] = {}
+_PREDICT_CACHE_TTL = 300.0  # 5 minutes
+
+
 class IcebergService:
     """Caches iceberg data and prediction results at instantiation time."""
 
@@ -221,6 +228,16 @@ class IcebergService:
         model: str | None = None,
     ) -> dict:
         model = self._resolve_model(model)
+        cache_key = (
+            tuple(sorted(iceberg_ids)) if iceberg_ids else None,
+            horizon_hours,
+            str(model),
+        )
+        now = time.time()
+        cached = _PREDICT_CACHE.get(cache_key)
+        if cached is not None and (now - cached[0]) < _PREDICT_CACHE_TTL:
+            return copy.deepcopy(cached[1])
+
         items = self._load()
         if iceberg_ids:
             items = [item for item in items if item["iceberg_id"] in iceberg_ids]
@@ -255,13 +272,15 @@ class IcebergService:
                 p["confidence"] = predictor._predictor.confidence_note()
             predictions.extend(fallback)
 
-        return {
+        result = {
             "icebergs": predictions,
             "model": model,
             "horizon_hours": horizon_hours,
             "trained_used": used_trained,
             **self._base(),
         }
+        _PREDICT_CACHE[cache_key] = (now, copy.deepcopy(result))
+        return result
 
     def trajectory(self, iceberg_id: str, model: str | None = None) -> dict | None:
         model = self._resolve_model(model)

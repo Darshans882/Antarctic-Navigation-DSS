@@ -16,16 +16,16 @@ from navigation.fuel_estimator import FuelEstimator
 from navigation.grid import AntarcticGrid
 from navigation.risk_engine import RiskEngine
 
-_PREFERENCE_WEIGHTS: dict[str, tuple[float, float]] = {
+_PREFERENCE_WEIGHTS: dict[str, tuple[float, float] | None] = {
     "recommended": None,  # resolved from RiskConfig.objective_weights
+    "balanced": None,     # synonym for recommended
     "shortest": (0.0, 1.0),
     "safest": (1.0, 0.0),
     "fuel_efficient": (0.3, 0.7),
     "alternative": (0.85, 0.15),
-    "balanced": None,
 }
 
-_PREFERENCE_ORDER = ("recommended", "shortest", "safest", "fuel_efficient")
+_PREFERENCE_ORDER = ("recommended", "shortest", "safest", "fuel_efficient", "balanced")
 
 
 class RouteValidator:
@@ -97,7 +97,7 @@ class RouteOptimizer:
                 f"Unknown preference {preference!r}. "
                 f"Choose from {sorted(_PREFERENCE_ORDER)}."
             )
-        if preference == "recommended":
+        if preference in ("recommended", "balanced") or _PREFERENCE_WEIGHTS[preference] is None:
             obj = self.risk_engine.config.objective_weights
             safety = float(obj.get("safety", 0.6))
             distance = float(obj.get("distance", 0.4))
@@ -341,7 +341,7 @@ class RouteOptimizer:
         """
         results: list[dict[str, Any] | None] = []
         for preference in _PREFERENCE_ORDER:
-            if preference == excluded:
+            if preference == excluded or (excluded in ("recommended", "balanced") and preference in ("recommended", "balanced")):
                 continue
             try:
                 results.append(
