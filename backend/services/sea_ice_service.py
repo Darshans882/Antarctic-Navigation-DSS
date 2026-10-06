@@ -136,23 +136,26 @@ class SeaIceService:
         return [[_cell(v) for v in row] for row in conc]
 
     def _persist_forecast(self, result: dict, model: str, horizon: int) -> None:
-        valid_time = result.get("valid_time")
-        summary = self._summary(
-            result.get("concentration", []), result.get("lat", []), result.get("lon", [])
-        )
-        demo = result.get("demo", True)
-        with SessionLocal() as db:
-            db.add(SeaIceForecastRecord(
-                forecast_time=result.get("forecast_time", _utcnow()),
-                valid_time=valid_time,
-                horizon_hours=horizon,
-                model=model,
-                mean_concentration=summary["mean"],
-                max_concentration=summary["max"],
-                coverage_pct=summary["coverage"],
-                demo=demo,
-            ))
-            db.commit()
+        try:
+            valid_time = result.get("valid_time")
+            summary = self._summary(
+                result.get("concentration", []), result.get("lat", []), result.get("lon", [])
+            )
+            demo = result.get("demo", True)
+            with SessionLocal() as db:
+                db.add(SeaIceForecastRecord(
+                    forecast_time=result.get("forecast_time", _utcnow()),
+                    valid_time=valid_time,
+                    horizon_hours=horizon,
+                    model=model,
+                    mean_concentration=summary["mean"],
+                    max_concentration=summary["max"],
+                    coverage_pct=summary["coverage"],
+                    demo=demo,
+                ))
+                db.commit()
+        except Exception as exc:
+            logger.warning("Failed to persist forecast record to database: %s", exc)
 
     # ------------------------------------------------------------------
     # public interface

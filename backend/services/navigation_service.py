@@ -205,9 +205,12 @@ class NavigationService:
             alternatives=alt_list,
             demo=demo,
         )
-        with SessionLocal() as db:
-            db.add(row)
-            db.commit()
+        try:
+            with SessionLocal() as db:
+                db.add(row)
+                db.commit()
+        except Exception as exc:
+            logger.warning("Failed to persist route to database: %s", exc)
 
         result = {
             "route_id": route_id,

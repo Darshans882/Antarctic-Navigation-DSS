@@ -205,49 +205,35 @@ export function NavigationPlannerPage() {
 
 
   useEffect(() => {
-
     Promise.all([
-
       api.ports(),
-
       api.researchCenters(),
-
       api.vessels(),
-
       api.simulationConfig(),
-
       api.seaIceForecast(24),
-
       api.icebergs(),
-
     ])
-
       .then(([p, c, v, sim, si, ib]) => {
-
-        setPorts(p);
-
-        setCenters(c);
-
-        setVessels(v.vessels);
-
-        setSimulationConfig(sim);
-
-        setSeaIce(si);
-
-        setIcebergs(ib);
-
-        if (p.length && !navigation.portId) setPortId(p[0].port_id);
-
-        if (c.length && !navigation.centerId) setCenterId(c[0].center_id);
-
-        if (v.vessels.length && !navigation.vesselId) setVesselId(v.vessels[0].vessel_id);
-
+        if (p?.length) {
+          setPorts(p);
+          if (!navigation.portId) setPortId(p[0].port_id);
+        }
+        if (c?.length) {
+          setCenters(c);
+          if (!navigation.centerId) setCenterId(c[0].center_id);
+        }
+        if (v?.vessels?.length) {
+          setVessels(v.vessels);
+          if (!navigation.vesselId) setVesselId(v.vessels[0].vessel_id);
+        }
+        if (sim) setSimulationConfig(sim);
+        if (si) setSeaIce(si);
+        if (ib) setIcebergs(ib);
       })
-
-      .catch(() => toast("Failed to load navigation data", "error"))
-
+      .catch((err) => {
+        console.warn("Navigation data loading notice:", err);
+      })
       .finally(() => setLoadingMeta(false));
-
   }, [toast]);
 
 

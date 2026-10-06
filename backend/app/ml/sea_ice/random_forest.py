@@ -55,7 +55,7 @@ class RandomForestIceForecaster:
         Falls back to persistence with a warning when no model is trained.
         """
         if not self.is_trained or horizon_hours not in self.models:
-            return [list(map(float, row)) for row in concentration]
+            return [[None if v is None else float(v) for v in row] for row in concentration]
 
         raise NotImplementedError(
             "Feature construction from grid fields is implemented in Phase 3."

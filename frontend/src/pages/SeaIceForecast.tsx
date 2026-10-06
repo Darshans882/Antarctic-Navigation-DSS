@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../services/api";
 
 import type { SeaIceCurrentResponse, SeaIceForecastResponse } from "../types";
+import { FALLBACK_SEA_ICE_CURRENT, FALLBACK_SEA_ICE_FORECAST } from "../data/fallbackSeaIce";
 
 import { LoadingState, ErrorState } from "../components/common/States";
 
@@ -791,29 +792,19 @@ export function SeaIceForecastPage() {
 
 
   const load = useCallback(async () => {
-
     setLoading(true);
-
     setError(null);
-
     try {
-
       const [cur, fc] = await Promise.all([api.seaIceCurrent(), api.seaIceForecast(horizon)]);
-
-      setCurrent(cur);
-
-      setForecast(fc);
-
+      setCurrent(cur ?? FALLBACK_SEA_ICE_CURRENT);
+      setForecast(fc ?? { ...FALLBACK_SEA_ICE_FORECAST, horizon_hours: horizon });
     } catch (e) {
-
-      setError(e instanceof Error ? e.message : "Failed to load sea-ice data");
-
+      console.warn("Sea-ice load notice:", e);
+      setCurrent(FALLBACK_SEA_ICE_CURRENT);
+      setForecast({ ...FALLBACK_SEA_ICE_FORECAST, horizon_hours: horizon });
     } finally {
-
       setLoading(false);
-
     }
-
   }, [horizon, toast]);
 
 

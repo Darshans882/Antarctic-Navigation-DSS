@@ -17,7 +17,7 @@ class PersistenceForecaster:
 
     def predict(self, concentration: list[list[float]], horizon_hours: int) -> list[list[float]]:
         """Return the current concentration field unchanged."""
-        return [list(map(float, row)) for row in concentration]
+        return [[None if v is None else float(v) for v in row] for row in concentration]
 
     def skill_note(self) -> str:
         """Honest description of baseline skill."""

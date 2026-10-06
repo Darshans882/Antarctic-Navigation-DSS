@@ -78,10 +78,16 @@ class SeaIceForecastService:
         (honest 'no data' marker — we never fabricate a concentration)."""
         import math
 
-        return [
-            [None if not math.isfinite(float(v)) else round(float(v), 6) for v in row]
-            for row in conc
-        ]
+        def _clean(val: Any) -> float | None:
+            if val is None:
+                return None
+            try:
+                f = float(val)
+                return None if not math.isfinite(f) else round(f, 6)
+            except (ValueError, TypeError):
+                return None
+
+        return [[_clean(v) for v in row] for row in conc]
 
     def available_models(self) -> list[dict[str, str]]:
         """List forecasting models available in the system."""

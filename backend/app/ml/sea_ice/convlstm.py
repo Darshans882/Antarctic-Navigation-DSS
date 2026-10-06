@@ -90,7 +90,7 @@ class ConvLSTMForecaster:
         Falls back to persistence until training data is available.
         """
         if not self.is_trained:
-            return [list(map(float, row)) for row in concentration]
+            return [[None if v is None else float(v) for v in row] for row in concentration]
         raise NotImplementedError("Trained ConvLSTM inference is implemented in Phase 3.")
 
     def skill_note(self) -> str:
