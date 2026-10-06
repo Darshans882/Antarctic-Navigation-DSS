@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     DATABASE_URL: str = "sqlite:///./antarctic_dss.db"
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = (
+        "http://localhost:5173,http://localhost:4173,http://localhost:3000,"
+        "http://127.0.0.1:5173,http://127.0.0.1:4173,http://127.0.0.1:3000"
+    )
     API_V1_PREFIX: str = "/api/v1"
     LOG_LEVEL: str = "INFO"
 

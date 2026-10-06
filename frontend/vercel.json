@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://atlas-belkin-area-whether.trycloudflare.com/api/:path*"
+      "destination": "http://13.126.222.122/api/:path*"
     },
     {
       "source": "/health",
-      "destination": "https://atlas-belkin-area-whether.trycloudflare.com/health"
+      "destination": "http://13.126.222.122/api/health"
     },
     {
       "source": "/(.*)",

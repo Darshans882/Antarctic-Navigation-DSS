@@ -80,6 +80,9 @@ for ($index = $backendProcessTree.Count - 1; $index -ge 0; $index--) {
 $backendListeners = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique
 foreach ($listenerProcessId in $backendListeners) {
+    if (Get-Process -Id $listenerProcessId -ErrorAction SilentlyContinue) {
+        & taskkill.exe /PID $listenerProcessId /T /F 2>$null | Out-Null
+    }
     $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $listenerProcessId"
     $backendProcessId = $listenerProcessId
     while ($processInfo) {
