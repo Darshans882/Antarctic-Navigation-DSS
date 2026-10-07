@@ -541,7 +541,12 @@ export const api = {
       }),
 
   analyticsSummary: () =>
-    http.get<AnalyticsSummaryResponse>("/analytics/summary").then((r) => r.data),
+    http.get<AnalyticsSummaryResponse>("/analytics/summary").then((r) => r.data).catch(() => ({
+      overview: { total_icebergs_tracked: 0, active_routes: 0, high_risk_zones: 0 },
+      trends: { average_ice_coverage_pct: 0, route_efficiency_score: 0 },
+      demo: true,
+      warning: "Live analytics unavailable.",
+    })),
 
   modelsStatus: () =>
     http.get<ModelRegistryResponse>("/models/status").then((r) => r.data),
