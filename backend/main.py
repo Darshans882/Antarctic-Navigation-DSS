@@ -96,7 +96,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request
+
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+class ForceGzipAcceptMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        headers = dict(request.scope["headers"])
+        if b"accept-encoding" not in headers:
+            headers[b"accept-encoding"] = b"gzip"
+            request.scope["headers"] = [(k, v) for k, v in headers.items()]
+        return await call_next(request)
+
+app.add_middleware(ForceGzipAcceptMiddleware)
 
 
 @app.get("/", tags=["root"])
