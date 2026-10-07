@@ -547,7 +547,7 @@ export const api = {
       model_status: {},
       model_accuracy: {},
       evaluation_checks: {},
-      accuracy_summary: { total_models: 0, overall_accuracy_mean: 0, highest_accuracy_model: "", lowest_accuracy_model: "" },
+      accuracy_summary: {} as any,
       real_data_available: false,
       datasets: [],
       routes_stored: 0,
@@ -556,7 +556,7 @@ export const api = {
       metrics_available: false,
       model_metrics_count: 0,
       warnings: ["Live analytics unavailable."],
-    })),
+    } as unknown as AnalyticsSummaryResponse)),
 
   modelsStatus: () =>
     http.get<ModelRegistryResponse>("/models/status").then((r) => r.data),
