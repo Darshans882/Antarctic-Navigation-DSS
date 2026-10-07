@@ -542,10 +542,20 @@ export const api = {
 
   analyticsSummary: () =>
     http.get<AnalyticsSummaryResponse>("/analytics/summary").then((r) => r.data).catch(() => ({
-      overview: { total_icebergs_tracked: 0, active_routes: 0, high_risk_zones: 0 },
-      trends: { average_ice_coverage_pct: 0, route_efficiency_score: 0 },
-      demo: true,
-      warning: "Live analytics unavailable.",
+      demo_mode: false,
+      real_model_available: {},
+      model_status: {},
+      model_accuracy: {},
+      evaluation_checks: {},
+      accuracy_summary: { total_models: 0, overall_accuracy_mean: 0, highest_accuracy_model: "", lowest_accuracy_model: "" },
+      real_data_available: false,
+      datasets: [],
+      routes_stored: 0,
+      icebergs_tracked: 0,
+      sea_ice_forecasts_stored: 0,
+      metrics_available: false,
+      model_metrics_count: 0,
+      warnings: ["Live analytics unavailable."],
     })),
 
   modelsStatus: () =>
